@@ -55,7 +55,7 @@ A comprehensive, professional-grade load testing tool for Ceph S3 object storage
 ### Installation
 
 ```bash
-cd /Users/unturk/Desktop/S3_Stress_Tool
+cd s3-stress-tool
 
 # Create virtual environment
 python3 -m venv venv

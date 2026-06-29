@@ -5,7 +5,7 @@
 A dedicated page that explains all test scenarios in detail.
 
 ### Access
-- **URL**: `http://195.155.140.66:5000/scenarios`
+- **URL**: `http://YOUR_SERVER_IP:5000/scenarios`
 - **From Dashboard**: Click "📋 View Test Scenarios" button in header
 
 ### What You'll Find

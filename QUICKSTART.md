@@ -6,7 +6,7 @@ Get the tool running in 5 minutes!
 
 ```bash
 # Navigate to project directory
-cd /Users/unturk/Desktop/S3_Stress_Tool
+cd s3-stress-tool
 
 # Create virtual environment
 python3 -m venv venv
