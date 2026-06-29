@@ -1,0 +1,729 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Report Analysis - S3 Stress Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .container-main {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            margin-bottom: 20px;
+            background: white;
+        }
+        .card-header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            border-radius: 10px 10px 0 0;
+            padding: 15px 20px;
+            font-weight: 600;
+            border: none;
+        }
+        .header {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .header h1 {
+            font-size: 2.5rem;
+            margin: 0;
+        }
+        .metric-box {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            text-align: center;
+            border-left: 5px solid #1e3c72;
+        }
+        .metric-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #1e3c72;
+            margin: 10px 0;
+        }
+        .metric-label {
+            font-size: 13px;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-bottom: 30px;
+        }
+        .back-link {
+            color: white;
+            margin-bottom: 20px;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .back-link:hover {
+            color: #ccc;
+        }
+        .report-selector {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .comparison-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 12px;
+            background: #d4edda;
+            color: #155724;
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 12px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #0c5aa0;
+        }
+        .nav-tabs {
+            border-bottom: 2px solid #1e3c72;
+        }
+        .nav-link {
+            color: white;
+            border: none;
+        }
+        .nav-link.active {
+            background: #1e3c72;
+            border-radius: 5px 5px 0 0;
+        }
+        .table-responsive {
+            background: white;
+            border-radius: 8px;
+            padding: 15px;
+        }
+        table {
+            margin: 0;
+        }
+        .success-rate-good { color: #28a745; font-weight: bold; }
+        .success-rate-warn { color: #ffc107; font-weight: bold; }
+        .success-rate-bad { color: #dc3545; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <div class="container-main">
+        <a href="/reports" class="back-link">← Back to Reports</a>
+
+        <div class="header">
+            <h1>📊 Report Analysis & Investigation</h1>
+            <p>Detailed analysis of your S3 stress test results</p>
+        </div>
+
+        <!-- Report Selector -->
+        <div class="report-selector">
+            <h5>Select Report to Analyze</h5>
+            <div class="row">
+                <div class="col-md-8">
+                    <select id="reportSelect" class="form-select" onchange="loadReport()">
+                        <option value="">-- Choose a report --</option>
+                    </select>
+                </div>
+                <div class="col-md-4">
+                    <button class="btn btn-primary w-100" onclick="loadReport()">📈 Load Report</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Report Details -->
+        <div id="reportContent" style="display: none;">
+            <!-- Header Info -->
+            <div class="card">
+                <div class="card-header">Test Information</div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-6">
+                            <p><strong>Scenario:</strong> <span id="scenarioName">-</span></p>
+                            <p><strong>Test Date:</strong> <span id="testDate">-</span></p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Duration:</strong> <span id="testDuration">-</span></p>
+                            <p><strong>Report ID:</strong> <span id="reportId" style="font-family: monospace; font-size: 12px;">-</span></p>
+                        </div>
+                    </div>
+                    <div class="row" style="margin-top: 10px;">
+                        <div class="col-md-6">
+                            <p><strong>Session ID:</strong> <span id="sessionId" style="font-family: monospace; font-size: 12px; background: #f0f0f0; padding: 4px 8px; border-radius: 4px;">-</span></p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bucket Impact -->
+            <div class="card" id="bucketStatsCard" style="display: none;">
+                <div class="card-header">📦 Bucket Impact</div>
+                <div class="card-body">
+                    <div class="row">
+                        <div class="col-md-4">
+                            <h6>Before Test</h6>
+                            <p>Size: <span id="bucketSizeBefore">-</span></p>
+                            <p>Objects: <span id="bucketCountBefore">-</span></p>
+                            <p>Avg Size: <span id="bucketAvgBefore">-</span></p>
+                        </div>
+                        <div class="col-md-4">
+                            <h6>After Test</h6>
+                            <p>Size: <span id="bucketSizeAfter">-</span></p>
+                            <p>Objects: <span id="bucketCountAfter">-</span></p>
+                            <p>Avg Size: <span id="bucketAvgAfter">-</span></p>
+                        </div>
+                        <div class="col-md-4">
+                            <h6>Change (Δ)</h6>
+                            <p style="color: #28a745; font-weight: bold;">+<span id="bucketDeltaSize">-</span></p>
+                            <p style="color: #28a745; font-weight: bold;">+<span id="bucketDeltaCount">-</span> objects</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary Metrics -->
+            <div class="card">
+                <div class="card-header">Summary Metrics</div>
+                <div class="card-body">
+                    <div class="stats-grid">
+                        <div class="metric-box">
+                            <div class="metric-label">Total Operations</div>
+                            <div class="metric-value" id="totalOps">0</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">IOPS</div>
+                            <div class="metric-value" id="iops">0</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">Throughput (MB/s)</div>
+                            <div class="metric-value" id="throughput">0</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">Data Transferred</div>
+                            <div class="metric-value" id="dataTransferred">0 MB</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">Avg Latency</div>
+                            <div class="metric-value" id="avgLatency">0 ms</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">P99 Latency</div>
+                            <div class="metric-value" id="p99Latency">0 ms</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">Success Rate</div>
+                            <div class="metric-value" id="successRate">0%</div>
+                        </div>
+                        <div class="metric-box">
+                            <div class="metric-label">Failed Ops</div>
+                            <div class="metric-value" id="failedOps">0</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Charts Section -->
+            <ul class="nav nav-tabs" role="tablist">
+                <li class="nav-item">
+                    <button class="nav-link active" id="timeline-tab" data-bs-toggle="tab" data-bs-target="#timeline-panel" type="button">Performance Timeline</button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link" id="analysis-tab" data-bs-toggle="tab" data-bs-target="#analysis-panel" type="button">Detailed Analysis</button>
+                </li>
+                <li class="nav-item">
+                    <button class="nav-link" id="distribution-tab" data-bs-toggle="tab" data-bs-target="#distribution-panel" type="button">Operation Distribution</button>
+                </li>
+            </ul>
+
+            <div class="tab-content">
+                <!-- Timeline Charts -->
+                <div class="tab-pane fade show active" id="timeline-panel" role="tabpanel">
+                    <div style="margin-top: 20px;">
+                        <h5>IOPS Over Time</h5>
+                        <div class="chart-container">
+                            <canvas id="iopsChart"></canvas>
+                        </div>
+
+                        <h5>Throughput Over Time</h5>
+                        <div class="chart-container">
+                            <canvas id="throughputChart"></canvas>
+                        </div>
+
+                        <h5>Latency Over Time (P50, P99)</h5>
+                        <div class="chart-container">
+                            <canvas id="latencyChart"></canvas>
+                        </div>
+
+                        <h5>Operations Completed Over Time</h5>
+                        <div class="chart-container">
+                            <canvas id="operationsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detailed Analysis -->
+                <div class="tab-pane fade" id="analysis-panel" role="tabpanel">
+                    <div style="margin-top: 20px;">
+                        <h5>Latency Distribution</h5>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Percentile</th>
+                                        <th>Latency (ms)</th>
+                                        <th>Assessment</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>Min</td>
+                                        <td><span id="minLatency">0</span> ms</td>
+                                        <td><small class="text-success">Best case</small></td>
+                                    </tr>
+                                    <tr>
+                                        <td>P50 (Median)</td>
+                                        <td><span id="p50Latency">0</span> ms</td>
+                                        <td><small class="text-info">50% of requests</small></td>
+                                    </tr>
+                                    <tr>
+                                        <td>P95</td>
+                                        <td><span id="p95Latency">0</span> ms</td>
+                                        <td><small class="text-warning">95% of requests</small></td>
+                                    </tr>
+                                    <tr>
+                                        <td>P99</td>
+                                        <td><span id="p99LatencyDetail">0</span> ms</td>
+                                        <td><small class="text-danger">99% of requests (tail latency)</small></td>
+                                    </tr>
+                                    <tr>
+                                        <td>Max</td>
+                                        <td><span id="maxLatency">0</span> ms</td>
+                                        <td><small class="text-danger">Worst case</small></td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h5 style="margin-top: 30px;">Read/Write Performance</h5>
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <thead>
+                                    <tr>
+                                        <th>Metric</th>
+                                        <th>Value</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr>
+                                        <td>Read IOPS</td>
+                                        <td><span id="readIops">0</span> ops/sec</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Write IOPS</td>
+                                        <td><span id="writeIops">0</span> ops/sec</td>
+                                    </tr>
+                                    <tr>
+                                        <td>Read Throughput</td>
+                                        <td>Included in overall throughput</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+
+                        <h5 style="margin-top: 30px;">Error Analysis</h5>
+                        <div id="errorAnalysis" class="table-responsive">
+                            <p class="text-muted">No errors detected</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Operation Distribution -->
+                <div class="tab-pane fade" id="distribution-panel" role="tabpanel">
+                    <div style="margin-top: 20px;">
+                        <h5>Operation Type Distribution</h5>
+                        <div class="chart-container">
+                            <canvas id="operationMixChart"></canvas>
+                        </div>
+
+                        <h5 style="margin-top: 30px;">Operation Type Details</h5>
+                        <div class="table-responsive">
+                            <table class="table table-sm" id="operationDetailsTable">
+                                <thead>
+                                    <tr>
+                                        <th>Operation Type</th>
+                                        <th>Count</th>
+                                        <th>Percentage</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="operationDetailsBody">
+                                    <!-- Populated by JavaScript -->
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Export Section -->
+            <div class="card" style="margin-top: 30px;">
+                <div class="card-header">Export Analysis</div>
+                <div class="card-body">
+                    <p>Download this report in your preferred format:</p>
+                    <div class="row">
+                        <div class="col-md-4">
+                            <button class="btn btn-primary w-100" onclick="exportAsJSON()">📄 JSON</button>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-info w-100" onclick="exportAsCSV()">📊 CSV</button>
+                        </div>
+                        <div class="col-md-4">
+                            <button class="btn btn-success w-100" onclick="printReport()">🖨️ Print</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        let currentReport = null;
+        let charts = {};
+
+        // Format latency as "X,XXX ms (X.X s)"
+        function formatLatency(latencyMs) {
+            if (!latencyMs || latencyMs === 0) return "0 ms";
+            const seconds = (latencyMs / 1000).toFixed(1);
+            const formatted = Math.round(latencyMs).toLocaleString();
+            return `${formatted} ms (${seconds}s)`;
+        }
+
+        // Initialize - load report list
+        function initializePage() {
+            fetch('/api/reports')
+                .then(r => r.json())
+                .then(data => {
+                    const select = document.getElementById('reportSelect');
+                    data.reports.forEach(report => {
+                        const option = document.createElement('option');
+                        option.value = report.run_id;
+                        option.textContent = `${report.scenario} - ${report.timestamp.split('T')[0]}`;
+                        select.appendChild(option);
+                    });
+
+                    // Auto-load first report if available
+                    if (data.reports.length > 0) {
+                        select.value = data.reports[0].run_id;
+                        loadReport();
+                    }
+                });
+        }
+
+        // Load and display report
+        function loadReport() {
+            const reportId = document.getElementById('reportSelect').value;
+            if (!reportId) return;
+
+            fetch(`/api/reports/${reportId}`)
+                .then(r => r.json())
+                .then(data => {
+                    currentReport = data;
+                    displayReport(data);
+                });
+        }
+
+        // Display report data
+        function displayReport(report) {
+            document.getElementById('reportContent').style.display = 'block';
+
+            const metrics = report.metrics;
+            const config = report.config;
+            const timeseries = report.timeseries || [];
+
+            // Header info
+            document.getElementById('scenarioName').textContent = report.scenario;
+            document.getElementById('testDate').textContent = new Date(report.timestamp).toLocaleString();
+            document.getElementById('testDuration').textContent = Math.round(metrics.elapsed) + 's';
+            document.getElementById('reportId').textContent = report.run_id;
+            document.getElementById('sessionId').textContent = report.session_id || 'N/A';
+
+            // Summary metrics
+            document.getElementById('totalOps').textContent = metrics.total_ops.toLocaleString();
+            document.getElementById('iops').textContent = metrics.iops.toFixed(2);
+            document.getElementById('throughput').textContent = metrics.throughput_mbs.toFixed(2);
+            document.getElementById('dataTransferred').textContent = metrics.data_transferred_mb.toFixed(2) + ' MB';
+            document.getElementById('avgLatency').textContent = formatLatency(metrics.latency_avg);
+            document.getElementById('p99Latency').textContent = formatLatency(metrics.latency_p99);
+
+            const successRate = metrics.success_rate.toFixed(2);
+            const successElement = document.getElementById('successRate');
+            successElement.textContent = successRate + '%';
+            if (successRate >= 99) {
+                successElement.parentElement.classList.add('success-rate-good');
+            } else if (successRate >= 95) {
+                successElement.parentElement.classList.add('success-rate-warn');
+            } else {
+                successElement.parentElement.classList.add('success-rate-bad');
+            }
+
+            document.getElementById('failedOps').textContent = metrics.failed_ops.toLocaleString();
+            document.getElementById('readIops').textContent = metrics.read_iops.toFixed(2);
+            document.getElementById('writeIops').textContent = metrics.write_iops.toFixed(2);
+
+            // Latency details
+            document.getElementById('minLatency').textContent = formatLatency(metrics.latency_min);
+            document.getElementById('p50Latency').textContent = formatLatency(metrics.latency_p50);
+            document.getElementById('p95Latency').textContent = formatLatency(metrics.latency_p95);
+            document.getElementById('p99LatencyDetail').textContent = formatLatency(metrics.latency_p99);
+            document.getElementById('maxLatency').textContent = formatLatency(metrics.latency_max);
+
+            // Error analysis
+            if (Object.keys(metrics.error_counts || {}).length > 0) {
+                let errorHtml = '<table class="table table-sm"><thead><tr><th>Error</th><th>Count</th></tr></thead><tbody>';
+                for (let [error, count] of Object.entries(metrics.error_counts)) {
+                    errorHtml += `<tr><td>${error}</td><td>${count}</td></tr>`;
+                }
+                errorHtml += '</tbody></table>';
+                document.getElementById('errorAnalysis').innerHTML = errorHtml;
+            }
+
+            // Bucket stats if available
+            const bucketStats = report.bucket_stats;
+            if (bucketStats && (bucketStats.start || bucketStats.end)) {
+                document.getElementById('bucketStatsCard').style.display = 'block';
+
+                function formatSize(bytes) {
+                    if (!bytes || bytes === 0) return '0 B';
+                    const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+                    let size = bytes;
+                    let unitIdx = 0;
+                    while (size >= 1024 && unitIdx < units.length - 1) {
+                        size /= 1024;
+                        unitIdx++;
+                    }
+                    return size.toFixed(2) + ' ' + units[unitIdx];
+                }
+
+                if (bucketStats.start) {
+                    document.getElementById('bucketSizeBefore').textContent = formatSize(bucketStats.start.total_size_bytes);
+                    document.getElementById('bucketCountBefore').textContent = bucketStats.start.object_count.toLocaleString();
+                    document.getElementById('bucketAvgBefore').textContent = formatSize(bucketStats.start.average_size_bytes);
+                }
+
+                if (bucketStats.end) {
+                    document.getElementById('bucketSizeAfter').textContent = formatSize(bucketStats.end.total_size_bytes);
+                    document.getElementById('bucketCountAfter').textContent = bucketStats.end.object_count.toLocaleString();
+                    document.getElementById('bucketAvgAfter').textContent = formatSize(bucketStats.end.average_size_bytes);
+                }
+
+                if (bucketStats.delta) {
+                    document.getElementById('bucketDeltaSize').textContent = formatSize(bucketStats.delta.bytes_added);
+                    document.getElementById('bucketDeltaCount').textContent = bucketStats.delta.objects_added.toLocaleString();
+                }
+            }
+
+            // Operation distribution
+            const operationCounts = metrics.operation_counts || {};
+            let opHtml = '';
+            const total = Object.values(operationCounts).reduce((a, b) => a + b, 0);
+            for (let [op, count] of Object.entries(operationCounts)) {
+                const pct = ((count / total) * 100).toFixed(1);
+                opHtml += `<tr><td>${op.toUpperCase()}</td><td>${count}</td><td>${pct}%</td></tr>`;
+            }
+            document.getElementById('operationDetailsBody').innerHTML = opHtml;
+
+            // Create charts
+            createCharts(timeseries, operationCounts);
+        }
+
+        // Create visualization charts
+        function createCharts(timeseries, operationCounts) {
+            // IOPS Chart
+            if (charts.iops) charts.iops.destroy();
+            const iopsCtx = document.getElementById('iopsChart').getContext('2d');
+            charts.iops = new Chart(iopsCtx, {
+                type: 'line',
+                data: {
+                    labels: timeseries.map((_, i) => i + 's'),
+                    datasets: [{
+                        label: 'IOPS',
+                        data: timeseries.map(d => d.iops),
+                        borderColor: '#1e3c72',
+                        backgroundColor: 'rgba(30, 60, 114, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' } }
+                }
+            });
+
+            // Throughput Chart
+            if (charts.throughput) charts.throughput.destroy();
+            const throughputCtx = document.getElementById('throughputChart').getContext('2d');
+            charts.throughput = new Chart(throughputCtx, {
+                type: 'line',
+                data: {
+                    labels: timeseries.map((_, i) => i + 's'),
+                    datasets: [{
+                        label: 'Throughput (MB/s)',
+                        data: timeseries.map(d => d.throughput_mbs),
+                        borderColor: '#17a2b8',
+                        backgroundColor: 'rgba(23, 162, 184, 0.1)',
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' } }
+                }
+            });
+
+            // Latency Chart
+            if (charts.latency) charts.latency.destroy();
+            const latencyCtx = document.getElementById('latencyChart').getContext('2d');
+            charts.latency = new Chart(latencyCtx, {
+                type: 'line',
+                data: {
+                    labels: timeseries.map((_, i) => i + 's'),
+                    datasets: [
+                        {
+                            label: 'P50 Latency (ms)',
+                            data: timeseries.map(d => d.latency_p50),
+                            borderColor: '#28a745',
+                            tension: 0.4
+                        },
+                        {
+                            label: 'P99 Latency (ms)',
+                            data: timeseries.map(d => d.latency_p99),
+                            borderColor: '#dc3545',
+                            tension: 0.4
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' } }
+                }
+            });
+
+            // Operations Chart
+            if (charts.operations) charts.operations.destroy();
+            const operationsCtx = document.getElementById('operationsChart').getContext('2d');
+            charts.operations = new Chart(operationsCtx, {
+                type: 'line',
+                data: {
+                    labels: timeseries.map((_, i) => i + 's'),
+                    datasets: [{
+                        label: 'Cumulative Operations',
+                        data: timeseries.map(d => d.total_ops),
+                        borderColor: '#ffc107',
+                        backgroundColor: 'rgba(255, 193, 7, 0.1)',
+                        fill: true,
+                        tension: 0.4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'top' } }
+                }
+            });
+
+            // Operation Mix Pie Chart
+            if (charts.mix) charts.mix.destroy();
+            const mixCtx = document.getElementById('operationMixChart').getContext('2d');
+            charts.mix = new Chart(mixCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: Object.keys(operationCounts).map(k => k.toUpperCase()),
+                    datasets: [{
+                        data: Object.values(operationCounts),
+                        backgroundColor: ['#1e3c72', '#17a2b8', '#28a745', '#ffc107', '#dc3545']
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: 'right' } }
+                }
+            });
+        }
+
+        // Export functions
+        function exportAsJSON() {
+            const dataStr = JSON.stringify(currentReport, null, 2);
+            const dataBlob = new Blob([dataStr], { type: 'application/json' });
+            downloadFile(dataBlob, `${currentReport.run_id}.json`);
+        }
+
+        function exportAsCSV() {
+            const metrics = currentReport.metrics;
+            const csv = `Metric,Value
+Total Operations,${metrics.total_ops}
+IOPS,${metrics.iops}
+Throughput MB/s,${metrics.throughput_mbs}
+Data Transferred MB,${metrics.data_transferred_mb}
+Avg Latency ms,${metrics.latency_avg}
+P50 Latency ms,${metrics.latency_p50}
+P99 Latency ms,${metrics.latency_p99}
+Success Rate %,${metrics.success_rate}
+Failed Operations,${metrics.failed_ops}`;
+            const csvBlob = new Blob([csv], { type: 'text/csv' });
+            downloadFile(csvBlob, `${currentReport.run_id}.csv`);
+        }
+
+        function downloadFile(blob, filename) {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function printReport() {
+            window.print();
+        }
+
+        // Initialize on load
+        initializePage();
+    </script>
+</body>
+</html>

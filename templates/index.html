@@ -1,0 +1,1182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ceph S3 Load Testing Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .container-main {
+            max-width: 1600px;
+            margin: 0 auto;
+        }
+        .header {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .header h1 {
+            font-size: 2.5rem;
+            margin: 0;
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            margin-bottom: 20px;
+            background: white;
+        }
+        .card-header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            border-radius: 10px 10px 0 0;
+            padding: 15px 20px;
+            font-weight: 600;
+            border: none;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            border: none;
+            padding: 10px 25px;
+            font-weight: 600;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(30, 60, 114, 0.4);
+        }
+        .metric-box {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            text-align: center;
+            border-left: 5px solid #1e3c72;
+        }
+        .metric-value {
+            font-size: 32px;
+            font-weight: bold;
+            color: #1e3c72;
+            margin: 10px 0;
+        }
+        .metric-label {
+            font-size: 13px;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 8px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 12px;
+        }
+        .status-running {
+            background: #d4edda;
+            color: #155724;
+        }
+        .status-stopped {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .chart-container {
+            position: relative;
+            height: 300px;
+            margin-bottom: 20px;
+        }
+        .scenario-card {
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        .scenario-card:hover {
+            border-color: #1e3c72;
+            box-shadow: 0 4px 12px rgba(30, 60, 114, 0.2);
+            transform: translateY(-2px);
+        }
+        .scenario-card.selected {
+            border-color: #1e3c72;
+            background: #f0f6ff;
+        }
+        .scenario-badge {
+            display: inline-block;
+            background: #1e3c72;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-right: 8px;
+            margin-bottom: 8px;
+        }
+        .form-control, .form-select {
+            border-radius: 5px;
+            border: 1px solid #ddd;
+        }
+        .form-control:focus, .form-select:focus {
+            border-color: #1e3c72;
+            box-shadow: 0 0 0 0.2rem rgba(30, 60, 114, 0.25);
+        }
+        .table-responsive {
+            margin-top: 20px;
+        }
+        .table {
+            margin-bottom: 0;
+        }
+        .spinner-small {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #f3f3f3;
+            border-top: 2px solid #1e3c72;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        .report-section {
+            background: #f0f9ff;
+            border-left: 5px solid #28a745;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .report-section h5 {
+            color: #28a745;
+            margin-bottom: 15px;
+        }
+        .download-buttons {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .download-btn {
+            padding: 10px 20px;
+            border-radius: 5px;
+            font-weight: 600;
+            text-decoration: none;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .download-btn-csv {
+            background: #17a2b8;
+            color: white;
+        }
+        .download-btn-csv:hover {
+            background: #138496;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(23, 162, 184, 0.3);
+        }
+        .download-btn-json {
+            background: #28a745;
+            color: white;
+        }
+        .download-btn-json:hover {
+            background: #218838;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="container-main">
+        <div class="header">
+            <h1>⚡ Ceph S3 Load Testing Tool</h1>
+            <p style="margin-bottom: 15px; font-size: 0.9rem; opacity: 0.9;">Comprehensive load testing for Ceph Object Storage</p>
+            <div>
+                <a href="/scenarios" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Learn about each test scenario">📋 View Test Scenarios</a>
+                <a href="/custom" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Create your own test scenarios">⚙️ Create Custom Scenario</a>
+                <a href="/analyze" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Analyze and visualize test reports">📊 Analyze Reports</a>
+                <button onclick="checkRetentionLock()" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Check if bucket has Object Lock (required for retention tests)">🔒 Check Object Lock</button>
+                <a href="/reports" class="btn btn-light btn-sm" style="margin-right: 10px;" title="View all test reports">📊 View Reports</a>
+                <button class="btn btn-light btn-sm" id="latestReportBtn" onclick="showLatestReport()" style="display: none;" title="View your latest test result">⭐ Latest Result</button>
+            </div>
+        </div>
+
+        <div class="row">
+            <!-- Left Sidebar: Configuration -->
+            <div class="col-lg-3">
+                <div class="card">
+                    <div class="card-header">Configuration</div>
+                    <div class="card-body">
+                        <!-- Endpoint -->
+                        <div class="mb-3">
+                            <label class="form-label">Endpoint URL</label>
+                            <input type="text" class="form-control" id="endpointUrl" placeholder="http://ceph.example.com:7480">
+                        </div>
+
+                        <!-- Access Key -->
+                        <div class="mb-3">
+                            <label class="form-label">Access Key</label>
+                            <input type="text" class="form-control" id="accessKey" placeholder="Your access key">
+                        </div>
+
+                        <!-- Secret Key -->
+                        <div class="mb-3">
+                            <label class="form-label">Secret Key</label>
+                            <input type="password" class="form-control" id="secretKey" placeholder="Your secret key">
+                        </div>
+
+                        <!-- Region -->
+                        <div class="mb-3">
+                            <label class="form-label">Region</label>
+                            <input type="text" class="form-control" id="region" value="default">
+                        </div>
+
+                        <!-- Bucket -->
+                        <div class="mb-3">
+                            <label class="form-label">Bucket Name</label>
+                            <input type="text" class="form-control" id="bucketName" placeholder="test-bucket">
+                        </div>
+
+                        <!-- Save Credentials Checkbox -->
+                        <div class="form-check mb-3">
+                            <input class="form-check-input" type="checkbox" id="saveCreds" checked>
+                            <label class="form-check-label" for="saveCreds">
+                                💾 Save Credentials (browser storage)
+                            </label>
+                            <small class="d-block text-muted mt-1">Securely save credentials locally - only on this device</small>
+                        </div>
+
+                        <!-- Clear Credentials Button -->
+                        <button type="button" class="btn btn-sm btn-outline-danger w-100 mb-3" onclick="clearCredentials()">
+                            🗑️ Clear Saved Credentials
+                        </button>
+
+                        <!-- Control Buttons -->
+                        <div class="d-grid gap-2">
+                            <button class="btn btn-primary btn-lg" id="startBtn" onclick="startTest()" style="font-size: 1.1rem;">
+                                <span id="startBtnText">▶ Start Test</span>
+                                <span id="startBtnLoader" style="display: none; font-weight: bold;">
+                                    ⏳ <span id="startBtnStatus">Initializing...</span>
+                                </span>
+                            </button>
+                            <button class="btn btn-danger" id="stopBtn" onclick="stopTest()" style="display: none;">
+                                ⏹ Stop Test
+                            </button>
+                        </div>
+
+                        <div style="margin-top: 15px; padding: 10px; background: #e7f3ff; border-radius: 5px;">
+                            <small><strong>Status:</strong> <span class="status-badge status-stopped" id="statusBadge">Idle</span></small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Test Duration -->
+                <div class="card">
+                    <div class="card-header">⏱️ Test Duration</div>
+                    <div class="card-body">
+                        <div class="mb-3">
+                            <label class="form-label">How long to run test?</label>
+                            <div class="btn-group w-100" role="group">
+                                <input type="radio" class="btn-check" name="duration-preset" id="dur5" value="300" onchange="setDuration(300)">
+                                <label class="btn btn-outline-primary" for="dur5">5 min</label>
+
+                                <input type="radio" class="btn-check" name="duration-preset" id="dur10" value="600" onchange="setDuration(600)">
+                                <label class="btn btn-outline-primary" for="dur10">10 min</label>
+
+                                <input type="radio" class="btn-check" name="duration-preset" id="dur15" value="900" onchange="setDuration(900)">
+                                <label class="btn btn-outline-primary" for="dur15">15 min</label>
+
+                                <input type="radio" class="btn-check" name="duration-preset" id="durCustom" value="custom" onchange="enableCustomDuration()">
+                                <label class="btn btn-outline-primary" for="durCustom">Custom</label>
+                            </div>
+                        </div>
+
+                        <!-- Custom Duration Input -->
+                        <div class="mb-3" id="customDurationInput" style="display: none;">
+                            <label class="form-label">Duration (minutes)</label>
+                            <input type="number" class="form-control" id="customDurationMinutes" min="1" max="120" value="5" placeholder="Enter minutes" onchange="updateCustomDuration()">
+                            <small class="text-muted">1 - 120 minutes</small>
+                        </div>
+
+                        <!-- Duration Display -->
+                        <div style="background: #f0f9ff; padding: 12px; border-radius: 5px; text-align: center;">
+                            <small class="text-muted">Test will run for</small><br>
+                            <strong id="durationDisplay" style="color: #1e3c72; font-size: 1.2rem;">5 minutes</strong>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Scenario Selector -->
+                <div class="card">
+                    <div class="card-header">Test Scenario</div>
+                    <div class="card-body" style="max-height: 500px; overflow-y: auto;">
+                        <div id="scenarioList"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Main Area: Metrics & Charts -->
+            <div class="col-lg-9">
+                <!-- Timer Card -->
+                <div class="card" id="timerCard" style="display: none;">
+                    <div class="card-header">⏱️ Test Duration Timer</div>
+                    <div class="card-body">
+                        <div style="text-align: center;">
+                            <div style="font-size: 3rem; font-weight: bold; color: #1e3c72; margin: 20px 0;">
+                                <span id="timerElapsed">0:00</span>
+                                <span style="color: #999; font-size: 2rem;"> / </span>
+                                <span id="timerTotal">5:00</span>
+                            </div>
+                            <div style="background: #f0f0f0; border-radius: 10px; overflow: hidden; height: 30px; margin-bottom: 15px;">
+                                <div id="timerProgress" style="background: linear-gradient(90deg, #28a745, #17a2b8); height: 100%; width: 0%; transition: width 0.3s; display: flex; align-items: center; justify-content: center; color: white; font-weight: 600;">
+                                    <span id="timerPercent">0%</span>
+                                </div>
+                            </div>
+                            <small style="color: #666;">
+                                <span id="timerRemaining">5:00</span> remaining
+                            </small>
+                            <br>
+                            <small style="color: #1e3c72; font-weight: 600; margin-top: 10px; display: block;">
+                                <span id="sessionIdDisplay">Session: —</span>
+                            </small>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Metric Cards -->
+                <div class="card">
+                    <div class="card-header">Real-time Metrics</div>
+                    <div class="card-body">
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="metric-box">
+                                    <div class="metric-label">IOPS</div>
+                                    <div class="metric-value" id="metricIops">0</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="metric-box">
+                                    <div class="metric-label">Read IOPS</div>
+                                    <div class="metric-value" id="metricReadMbs">0</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="metric-box">
+                                    <div class="metric-label">Throughput MB/s</div>
+                                    <div class="metric-value" id="metricWriteMbs">0</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="metric-box">
+                                    <div class="metric-label">Avg Latency (ms)</div>
+                                    <div class="metric-value" id="metricLatency">0</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="metric-box">
+                                    <div class="metric-label">P99 Latency (ms)</div>
+                                    <div class="metric-value" id="metricP99">0</div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="metric-box">
+                                    <div class="metric-label">Success Rate</div>
+                                    <div class="metric-value" id="metricSuccess">0%</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Charts -->
+                <div class="card">
+                    <div class="card-header">Throughput (MB/s)</div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="throughputChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">IOPS</div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="iopsChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">Latency (ms)</div>
+                    <div class="card-body">
+                        <div class="chart-container">
+                            <canvas id="latencyChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Detailed Metrics Table -->
+                <div class="card">
+                    <div class="card-header">Detailed Metrics</div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-sm">
+                                <tr>
+                                    <td><strong>Total Operations</strong></td>
+                                    <td id="detailTotalOps">0</td>
+                                    <td><strong>Successful</strong></td>
+                                    <td id="detailSuccessOps">0</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Failed Operations</strong></td>
+                                    <td id="detailFailedOps">0</td>
+                                    <td><strong>Data Transferred</strong></td>
+                                    <td id="detailDataMb">0 MB</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Latency P50</strong></td>
+                                    <td id="detailP50">0 ms</td>
+                                    <td><strong>Latency P90</strong></td>
+                                    <td id="detailP90">0 ms</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Latency P95</strong></td>
+                                    <td id="detailP95">0 ms</td>
+                                    <td><strong>Latency P99</strong></td>
+                                    <td id="detailP99">0 ms</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Duration</strong></td>
+                                    <td id="detailDuration">0s</td>
+                                    <td><strong>Success Rate</strong></td>
+                                    <td id="detailSuccessRate">0%</td>
+                                </tr>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Current Test Report -->
+                <div class="report-section" id="reportSection" style="display: none;">
+                    <h5>📊 Test Complete - Download Report</h5>
+                    <div class="download-buttons">
+                        <button class="download-btn download-btn-csv" onclick="downloadCurrentReport('csv')">
+                            📥 Download CSV
+                        </button>
+                        <button class="download-btn download-btn-json" onclick="downloadCurrentReport('json')">
+                            📥 Download JSON
+                        </button>
+                    </div>
+                    <small class="text-muted" style="display: block; margin-top: 10px;">
+                        💡 CSV format: Great for spreadsheets and analysis<br>
+                        💡 JSON format: Great for API integration and detailed data
+                    </small>
+                </div>
+
+                <!-- Test History -->
+                <div class="card">
+                    <div class="card-header">Test History</div>
+                    <div class="card-body">
+                        <div class="table-responsive">
+                            <table class="table table-sm table-hover" id="historyTable">
+                                <thead>
+                                    <tr>
+                                        <th>Run ID</th>
+                                        <th>Scenario</th>
+                                        <th>IOPS</th>
+                                        <th>Throughput</th>
+                                        <th>Success Rate</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="historyBody">
+                                    <tr><td colspan="6" class="text-center text-muted">No reports yet</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Object Lock Check Modal -->
+    <div class="modal fade" id="retentionCheckModal" tabindex="-1">
+        <div class="modal-dialog">
+            <div class="modal-content">
+                <div class="modal-header" style="background: linear-gradient(135deg, #6a0080 0%, #9c27b0 100%); color: white;">
+                    <h5 class="modal-title">🔒 Object Lock Status</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="retentionCheckContent">
+                    <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div> Checking...
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Chart instances
+        let throughputChart, iopsChart, latencyChart;
+        let pollInterval;
+        let selectedScenario = null;
+        let currentRunId = null;
+        let currentSessionId = null; // Store current session ID
+        let testStartTime = null;
+        let testDurationSeconds = 300; // Default 5 minutes
+        let timerInterval = null;
+
+        // Format latency as "X,XXX ms (X.X s)"
+        function formatLatency(latencyMs) {
+            if (!latencyMs || latencyMs === 0) return "0 ms";
+            const seconds = (latencyMs / 1000).toFixed(1);
+            const formatted = Math.round(latencyMs).toLocaleString();
+            return `${formatted} ms (${seconds}s)`;
+        }
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', function() {
+            loadScenarios();
+            initCharts();
+            loadHistory();
+            loadCredentials();
+            setupCredentialsSave();
+            resumeActiveSession();
+        });
+
+        // Resume active session if user navigated away
+        function resumeActiveSession() {
+            const savedSessionId = localStorage.getItem('activeSessionId');
+            if (savedSessionId) {
+                currentSessionId = savedSessionId;
+                console.log('Resuming active session:', currentSessionId);
+
+                // Show test UI
+                document.getElementById('startBtn').style.display = 'none';
+                document.getElementById('stopBtn').style.display = 'block';
+                document.getElementById('timerCard').style.display = 'block';
+                updateStatus('running');
+
+                // Resume polling
+                pollStatus();
+            }
+        }
+
+        function loadScenarios() {
+            fetch('/api/scenarios')
+                .then(r => r.json())
+                .then(data => {
+                    const list = document.getElementById('scenarioList');
+                    list.innerHTML = '';
+
+                    const categories = {};
+                    for (let [key, scenario] of Object.entries(data.scenarios)) {
+                        const cat = scenario.category;
+                        if (!categories[cat]) categories[cat] = [];
+                        categories[cat].push({ key, ...scenario });
+                    }
+
+                    for (let [cat, scenarios] of Object.entries(categories)) {
+                        const catTitle = document.createElement('div');
+                        catTitle.style.marginTop = '15px';
+                        catTitle.style.fontWeight = 'bold';
+                        catTitle.style.color = '#1e3c72';
+                        catTitle.textContent = cat.toUpperCase();
+                        list.appendChild(catTitle);
+
+                        for (let s of scenarios) {
+                            const isRetention = s.category === 'retention';
+                            const card = document.createElement('div');
+                            card.className = 'scenario-card';
+                            card.onclick = () => selectScenario(s.key);
+                            card.innerHTML = `
+                                <div style="margin-bottom: 5px;">
+                                    <span class="scenario-badge">${s.category}</span>
+                                    ${isRetention ? `<span style="background:#6a0080;color:white;padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600;">🔒 Object Lock</span>` : ''}
+                                </div>
+                                <strong>${s.name}</strong>
+                                <div style="font-size: 12px; color: #666; margin-top: 5px;">${s.description}</div>
+                                <div style="font-size: 11px; color: #999; margin-top: 5px;">
+                                    ${s.concurrent_ops} ops × ${s.object_size_mb.toFixed(1)}MB
+                                </div>
+                                ${isRetention ? `<div style="font-size:11px;color:#6a0080;margin-top:4px;font-weight:600;">⚠ Bucket must have Object Lock enabled at creation</div>` : ''}
+                            `;
+                            list.appendChild(card);
+                        }
+                    }
+                });
+        }
+
+        function selectScenario(key) {
+            document.querySelectorAll('.scenario-card').forEach(c => c.classList.remove('selected'));
+            event.target.closest('.scenario-card').classList.add('selected');
+            selectedScenario = key;
+            // Auto-check Object Lock when a retention scenario is selected
+            const retentionScenarios = ['retention_governance', 'retention_compliance', 'retention_worm_verify'];
+            if (retentionScenarios.includes(key)) {
+                checkRetentionLock();
+            }
+        }
+
+        function initCharts() {
+            const chartOptions = {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'top' } },
+                scales: {
+                    y: { beginAtZero: true }
+                }
+            };
+
+            const ctx1 = document.getElementById('throughputChart').getContext('2d');
+            throughputChart = new Chart(ctx1, {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: 'MB/s', data: [], borderColor: '#1e3c72', fill: false }] },
+                options: chartOptions
+            });
+
+            const ctx2 = document.getElementById('iopsChart').getContext('2d');
+            iopsChart = new Chart(ctx2, {
+                type: 'line',
+                data: { labels: [], datasets: [{ label: 'IOPS', data: [], borderColor: '#2a5298', fill: false }] },
+                options: chartOptions
+            });
+
+            const ctx3 = document.getElementById('latencyChart').getContext('2d');
+            latencyChart = new Chart(ctx3, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [
+                        { label: 'Avg (ms)', data: [], borderColor: '#1e3c72', fill: false },
+                        { label: 'P99 (ms)', data: [], borderColor: '#ff6b6b', fill: false }
+                    ]
+                },
+                options: chartOptions
+            });
+        }
+
+        function updateCharts(timeseries) {
+            if (!timeseries || timeseries.length === 0) return;
+
+            const labels = timeseries.map((p, i) => i.toString());
+            const throughputs = timeseries.map(p => p.throughput_mbs);
+            const iops = timeseries.map(p => p.iops);
+            const latencies = timeseries.map(p => p.latency_avg);
+            const p99s = timeseries.map(p => p.latency_p99);
+
+            throughputChart.data.labels = labels;
+            throughputChart.data.datasets[0].data = throughputs;
+            throughputChart.update();
+
+            iopsChart.data.labels = labels;
+            iopsChart.data.datasets[0].data = iops;
+            iopsChart.update();
+
+            latencyChart.data.labels = labels;
+            latencyChart.data.datasets[0].data = latencies;
+            latencyChart.data.datasets[1].data = p99s;
+            latencyChart.update();
+        }
+
+        // Timer Update Function
+        function updateTimer() {
+            if (!testStartTime) return;
+
+            const now = Date.now();
+            const elapsed = Math.floor((now - testStartTime) / 1000);
+            const remaining = Math.max(0, testDurationSeconds - elapsed);
+            const progress = Math.min(100, (elapsed / testDurationSeconds) * 100);
+
+            // Format time as MM:SS
+            const formatTime = (seconds) => {
+                const mins = Math.floor(seconds / 60);
+                const secs = seconds % 60;
+                return `${mins}:${secs.toString().padStart(2, '0')}`;
+            };
+
+            // Update display
+            document.getElementById('timerElapsed').textContent = formatTime(elapsed);
+            document.getElementById('timerTotal').textContent = formatTime(testDurationSeconds);
+            document.getElementById('timerRemaining').textContent = formatTime(remaining);
+            document.getElementById('timerProgress').style.width = progress + '%';
+            document.getElementById('timerPercent').textContent = Math.round(progress) + '%';
+
+            // Change color as time runs out
+            const progressBar = document.getElementById('timerProgress');
+            if (progress >= 80) {
+                progressBar.style.background = 'linear-gradient(90deg, #dc3545, #c82333)'; // Red
+            } else if (progress >= 50) {
+                progressBar.style.background = 'linear-gradient(90deg, #ffc107, #e0a800)'; // Yellow
+            } else {
+                progressBar.style.background = 'linear-gradient(90deg, #28a745, #17a2b8)'; // Green
+            }
+        }
+
+        // Duration Management Functions
+        function setDuration(seconds) {
+            testDurationSeconds = seconds;
+            updateDurationDisplay();
+            document.getElementById('customDurationInput').style.display = 'none';
+        }
+
+        function enableCustomDuration() {
+            document.getElementById('customDurationInput').style.display = 'block';
+            document.getElementById('customDurationMinutes').focus();
+            updateCustomDuration();
+        }
+
+        function updateCustomDuration() {
+            const minutes = parseInt(document.getElementById('customDurationMinutes').value) || 5;
+            if (minutes < 1) {
+                document.getElementById('customDurationMinutes').value = 1;
+                testDurationSeconds = 60;
+            } else if (minutes > 120) {
+                document.getElementById('customDurationMinutes').value = 120;
+                testDurationSeconds = 120 * 60;
+            } else {
+                testDurationSeconds = minutes * 60;
+            }
+            updateDurationDisplay();
+        }
+
+        function updateDurationDisplay() {
+            const minutes = Math.floor(testDurationSeconds / 60);
+            const seconds = testDurationSeconds % 60;
+            let display = '';
+            if (minutes > 0) {
+                display = minutes + ' min';
+                if (seconds > 0) display += ' ' + seconds + ' sec';
+            } else {
+                display = seconds + ' seconds';
+            }
+            document.getElementById('durationDisplay').textContent = display;
+        }
+
+        function startTest() {
+            if (!selectedScenario) {
+                alert('Please select a scenario');
+                return;
+            }
+
+            const endpoint = document.getElementById('endpointUrl').value;
+            const accessKey = document.getElementById('accessKey').value;
+            const secretKey = document.getElementById('secretKey').value;
+            const region = document.getElementById('region').value;
+            const bucket = document.getElementById('bucketName').value;
+
+            if (!endpoint || !accessKey || !secretKey || !bucket) {
+                alert('Please fill in all required fields');
+                return;
+            }
+
+            // Show loading state on start button
+            const startBtn = document.getElementById('startBtn');
+            const startBtnText = document.getElementById('startBtnText');
+            const startBtnLoader = document.getElementById('startBtnLoader');
+            const startBtnStatus = document.getElementById('startBtnStatus');
+
+            startBtnText.style.display = 'none';
+            startBtnLoader.style.display = 'inline';
+            startBtnStatus.textContent = '⏳ Initializing... Capturing bucket stats';
+            startBtn.disabled = true;
+
+            const payload = {
+                scenario: selectedScenario,
+                bucket_name: bucket,
+                endpoint_url: endpoint,
+                access_key: accessKey,
+                secret_key: secretKey,
+                region: region,
+                duration: testDurationSeconds,
+            };
+
+            fetch('/api/test/start', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                        // Reset button on error
+                        startBtnText.style.display = 'inline';
+                        startBtnLoader.style.display = 'none';
+                        startBtn.disabled = false;
+                    } else {
+                        // Store session ID
+                        currentSessionId = data.session_id;
+                        localStorage.setItem('activeSessionId', currentSessionId);
+                        console.log('Test started with session ID:', currentSessionId);
+
+                        // Hide loading state and show stop button (reset its label/state)
+                        startBtnText.style.display = 'none';
+                        startBtnLoader.style.display = 'none';
+                        startBtn.style.display = 'none';
+                        const stopBtn = document.getElementById('stopBtn');
+                        stopBtn.textContent = '⏹ Stop Test';
+                        stopBtn.disabled = false;
+                        stopBtn.style.display = 'block';
+                        document.getElementById('reportSection').style.display = 'none';
+                        document.getElementById('timerCard').style.display = 'block';
+
+                        // Display session ID in timer card
+                        const sessionDisplay = document.getElementById('sessionIdDisplay');
+                        if (sessionDisplay) {
+                            sessionDisplay.textContent = 'Session: ' + currentSessionId;
+                        }
+
+                        testStartTime = Date.now();
+
+                        // Start timer update every 100ms for smooth progress
+                        if (timerInterval) clearInterval(timerInterval);
+                        timerInterval = setInterval(updateTimer, 100);
+                        updateTimer(); // Initial update
+
+                        updateStatus('running');
+                        pollStatus();
+                    }
+                })
+                .catch(e => {
+                    console.error('Start test error:', e);
+                    // Reset button on error
+                    startBtnText.style.display = 'inline';
+                    startBtnLoader.style.display = 'none';
+                    startBtn.disabled = false;
+                });
+        }
+
+        function stopTest() {
+            if (!currentSessionId) {
+                alert('No test session to stop');
+                return;
+            }
+
+            const stopBtn = document.getElementById('stopBtn');
+            stopBtn.disabled = true;
+            stopBtn.textContent = '⏳ Stopping... Generating report';
+
+            fetch('/api/test/stop', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ session_id: currentSessionId })
+            })
+                .then(() => {
+                    currentSessionId = null;
+                    localStorage.removeItem('activeSessionId');
+                    const startBtn = document.getElementById('startBtn');
+                    const startBtnText = document.getElementById('startBtnText');
+                    const startBtnLoader = document.getElementById('startBtnLoader');
+
+                    startBtnText.style.display = 'inline';
+                    startBtnLoader.style.display = 'none';
+                    startBtn.style.display = 'block';
+                    startBtn.disabled = false;
+                    stopBtn.style.display = 'none';
+                    document.getElementById('timerCard').style.display = 'none';
+                    updateStatus('stopped');
+                    if (pollInterval) clearTimeout(pollInterval);
+                    if (timerInterval) clearInterval(timerInterval);
+                    loadHistory();
+                })
+                .catch(e => {
+                    console.error('Stop test error:', e);
+                    stopBtn.disabled = false;
+                    stopBtn.textContent = '⏹ Stop Test';
+                });
+        }
+
+        function pollStatus() {
+            if (!currentSessionId) return;
+
+            const url = `/api/test/status?session_id=${currentSessionId}`;
+            fetch(url)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) {
+                        console.error('Status error:', data.error);
+                        return;
+                    }
+
+                    document.getElementById('metricIops').textContent = data.iops.toFixed(2);
+                    document.getElementById('metricReadMbs').textContent = data.read_iops.toFixed(2);
+                    document.getElementById('metricWriteMbs').textContent = data.throughput_mbs.toFixed(2);
+                    document.getElementById('metricLatency').textContent = formatLatency(data.latency_avg);
+                    document.getElementById('metricP99').textContent = formatLatency(data.latency_p99);
+                    document.getElementById('metricSuccess').textContent = data.success_rate.toFixed(1) + '%';
+
+                    document.getElementById('detailTotalOps').textContent = data.total_ops;
+                    document.getElementById('detailSuccessOps').textContent = data.successful_ops;
+                    document.getElementById('detailFailedOps').textContent = data.failed_ops;
+                    document.getElementById('detailDataMb').textContent = data.data_transferred_mb.toFixed(2) + ' MB';
+                    document.getElementById('detailP50').textContent = data.latency_p50.toFixed(2) + ' ms';
+                    document.getElementById('detailP90').textContent = data.latency_p90.toFixed(2) + ' ms';
+                    document.getElementById('detailP95').textContent = data.latency_p95.toFixed(2) + ' ms';
+                    document.getElementById('detailP99').textContent = formatLatency(data.latency_p99);
+                    document.getElementById('detailDuration').textContent = data.elapsed.toFixed(1) + 's';
+                    document.getElementById('detailSuccessRate').textContent = data.success_rate.toFixed(1) + '%';
+
+                    updateCharts(data.timeseries);
+
+                    if (data.running) {
+                        pollInterval = setTimeout(pollStatus, 1000);
+                    } else {
+                        currentSessionId = null;
+                        localStorage.removeItem('activeSessionId');
+                        updateStatus('stopped');
+
+                        const startBtn = document.getElementById('startBtn');
+                        const startBtnText = document.getElementById('startBtnText');
+                        const startBtnLoader = document.getElementById('startBtnLoader');
+
+                        startBtnText.style.display = 'inline';
+                        startBtnLoader.style.display = 'none';
+                        startBtn.style.display = 'block';
+                        startBtn.disabled = false;
+                        document.getElementById('stopBtn').style.display = 'none';
+                        document.getElementById('timerCard').style.display = 'none';
+
+                        // Clear timer
+                        if (timerInterval) clearInterval(timerInterval);
+
+                        // Show report section after test completes
+                        setTimeout(() => {
+                            loadHistory();
+                            if (document.getElementById('historyBody').rows.length > 1) {
+                                const firstRow = document.getElementById('historyBody').rows[0];
+                                currentRunId = firstRow.cells[0].textContent.trim();
+                                document.getElementById('reportSection').style.display = 'block';
+                                document.getElementById('latestReportBtn').style.display = 'inline-block';
+                            }
+                        }, 500);
+                    }
+                })
+                .catch(e => {
+                    console.error('Poll error:', e);
+                    if (currentSessionId) {
+                        pollInterval = setTimeout(pollStatus, 1000);
+                    }
+                });
+        }
+
+        function updateStatus(status) {
+            const badge = document.getElementById('statusBadge');
+            if (status === 'running') {
+                badge.textContent = '● RUNNING';
+                badge.className = 'status-badge status-running';
+            } else {
+                badge.textContent = '● IDLE';
+                badge.className = 'status-badge status-stopped';
+            }
+        }
+
+        function loadHistory() {
+            fetch('/api/reports')
+                .then(r => r.json())
+                .then(data => {
+                    const tbody = document.getElementById('historyBody');
+                    if (data.reports.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No reports yet</td></tr>';
+                    } else {
+                        tbody.innerHTML = data.reports.map(r => `
+                            <tr>
+                                <td><small>${r.run_id}</small></td>
+                                <td>${r.scenario}</td>
+                                <td>${r.iops.toFixed(2)}</td>
+                                <td>${r.throughput_mbs.toFixed(2)} MB/s</td>
+                                <td>${r.success_rate.toFixed(1)}%</td>
+                                <td style="white-space: nowrap;">
+                                    <button onclick="exportReport('${r.run_id}', 'csv')" class="download-btn download-btn-csv" style="font-size: 0.85rem; padding: 6px 12px;">📥 CSV</button>
+                                    <button onclick="exportReport('${r.run_id}', 'json')" class="download-btn download-btn-json" style="font-size: 0.85rem; padding: 6px 12px;">📥 JSON</button>
+                                </td>
+                            </tr>
+                        `).join('');
+                    }
+                });
+        }
+
+        function exportReport(runId, format) {
+            window.location.href = `/api/reports/${runId}/export?format=${format}`;
+        }
+
+        function downloadCurrentReport(format) {
+            if (!currentRunId) {
+                alert('No test report available');
+                return;
+            }
+            exportReport(currentRunId, format);
+        }
+
+        function showLatestReport() {
+            // Scroll to current test report section
+            const reportSection = document.getElementById('reportSection');
+            if (reportSection && reportSection.style.display !== 'none') {
+                reportSection.scrollIntoView({ behavior: 'smooth' });
+            } else {
+                alert('No test report available yet. Run a test first!');
+            }
+        }
+
+        function showReports() {
+            // Scroll to history section with all reports
+            document.getElementById('historyTable').scrollIntoView({ behavior: 'smooth' });
+        }
+
+        // Credentials Management Functions
+        function loadCredentials() {
+            const saved = localStorage.getItem('s3_credentials');
+            if (saved) {
+                try {
+                    const creds = JSON.parse(saved);
+                    document.getElementById('endpointUrl').value = creds.endpoint || '';
+                    document.getElementById('accessKey').value = creds.accessKey || '';
+                    document.getElementById('secretKey').value = creds.secretKey || '';
+                    document.getElementById('region').value = creds.region || 'default';
+                    document.getElementById('bucketName').value = creds.bucket || '';
+                    document.getElementById('saveCreds').checked = true;
+                } catch (e) {
+                    console.log('Could not load saved credentials');
+                }
+            }
+        }
+
+        function setupCredentialsSave() {
+            // Save credentials when user changes them
+            const credFields = ['endpointUrl', 'accessKey', 'secretKey', 'region', 'bucketName'];
+
+            credFields.forEach(fieldId => {
+                document.getElementById(fieldId).addEventListener('change', function() {
+                    if (document.getElementById('saveCreds').checked) {
+                        saveCredentials();
+                    }
+                });
+            });
+
+            // When user toggles save checkbox
+            document.getElementById('saveCreds').addEventListener('change', function() {
+                if (this.checked) {
+                    saveCredentials();
+                } else {
+                    localStorage.removeItem('s3_credentials');
+                }
+            });
+        }
+
+        function saveCredentials() {
+            if (!document.getElementById('saveCreds').checked) return;
+
+            const creds = {
+                endpoint: document.getElementById('endpointUrl').value,
+                accessKey: document.getElementById('accessKey').value,
+                secretKey: document.getElementById('secretKey').value,
+                region: document.getElementById('region').value,
+                bucket: document.getElementById('bucketName').value,
+                savedAt: new Date().toISOString()
+            };
+
+            try {
+                localStorage.setItem('s3_credentials', JSON.stringify(creds));
+                console.log('Credentials saved successfully');
+            } catch (e) {
+                console.error('Could not save credentials:', e);
+            }
+        }
+
+        function clearCredentials() {
+            if (confirm('Are you sure you want to clear saved credentials?')) {
+                localStorage.removeItem('s3_credentials');
+                document.getElementById('endpointUrl').value = '';
+                document.getElementById('accessKey').value = '';
+                document.getElementById('secretKey').value = '';
+                document.getElementById('region').value = 'default';
+                document.getElementById('bucketName').value = '';
+                document.getElementById('saveCreds').checked = false;
+                console.log('Credentials cleared');
+            }
+        }
+
+        function checkRetentionLock() {
+            const endpoint = document.getElementById('endpointUrl').value;
+            const accessKey = document.getElementById('accessKey').value;
+            const secretKey = document.getElementById('secretKey').value;
+            const bucket = document.getElementById('bucketName').value;
+            const region = document.getElementById('region').value;
+
+            if (!endpoint || !accessKey || !secretKey || !bucket) {
+                alert('Please fill in all S3 configuration fields first');
+                return;
+            }
+
+            const contentDiv = document.getElementById('retentionCheckContent');
+            contentDiv.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Checking Object Lock configuration...';
+
+            const modal = new bootstrap.Modal(document.getElementById('retentionCheckModal'));
+            modal.show();
+
+            fetch('/api/retention/check', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bucket_name: bucket, endpoint_url: endpoint, access_key: accessKey, secret_key: secretKey, region: region })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    contentDiv.innerHTML = `<div class="alert alert-danger">❌ Error: ${data.error}</div>`;
+                    return;
+                }
+
+                if (data.object_lock_enabled === true) {
+                    contentDiv.innerHTML = `
+                        <div class="alert alert-success">
+                            <strong>✅ Object Lock is ENABLED</strong><br>
+                            Bucket <strong>${data.bucket}</strong> supports retention lock.<br>
+                            You can run retention scenarios on this bucket.
+                        </div>
+                        <div style="background:#f3e5f5;padding:12px;border-radius:8px;border-left:4px solid #9c27b0;">
+                            <strong>Available retention scenarios:</strong>
+                            <ul style="margin:8px 0 0 0;padding-left:20px;font-size:13px;">
+                                <li><strong>GOVERNANCE mode</strong> — Lock can be bypassed with special IAM permissions</li>
+                                <li><strong>COMPLIANCE mode</strong> — Strictest: no one can delete until expiry (not even root)</li>
+                                <li><strong>WORM Verify</strong> — Mixed writes + delete attempts; success rate = % of deletes blocked</li>
+                            </ul>
+                        </div>`;
+                } else if (data.object_lock_enabled === false) {
+                    contentDiv.innerHTML = `
+                        <div class="alert alert-warning">
+                            <strong>⚠ Object Lock is NOT enabled</strong><br>
+                            ${data.reason || 'This bucket does not have Object Lock configured.'}<br><br>
+                            <strong>Object Lock must be enabled at bucket creation time.</strong><br>
+                            You need to create a new bucket with Object Lock enabled to run retention tests.
+                        </div>
+                        <div style="background:#fff3e0;padding:12px;border-radius:8px;border-left:4px solid #ff9800;font-size:13px;">
+                            <strong>How to create an Object Lock bucket:</strong><br>
+                            <code>aws s3api create-bucket --bucket &lt;name&gt; --object-lock-enabled-for-bucket</code><br>
+                            Or ask your Ceph administrator to create the bucket with <code>rgw_object_lock_enabled = true</code>.
+                        </div>`;
+                } else {
+                    contentDiv.innerHTML = `<div class="alert alert-secondary">⚠ ${data.reason || 'Could not determine Object Lock status.'}</div>`;
+                }
+            })
+            .catch(e => {
+                contentDiv.innerHTML = `<div class="alert alert-danger">❌ Error: ${e.message}</div>`;
+            });
+        }
+    </script>
+</body>
+</html>

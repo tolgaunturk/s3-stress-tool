@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Custom Test Suite - S3 Stress Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .container-main {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            margin-bottom: 20px;
+            background: white;
+        }
+        .card-header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            border-radius: 10px 10px 0 0;
+            padding: 15px 20px;
+            font-weight: 600;
+            border: none;
+        }
+        .header {
+            color: white;
+            text-align: center;
+            margin-bottom: 30px;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .header h1 {
+            font-size: 2.5rem;
+            margin: 0;
+        }
+        .form-section {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        .form-section h5 {
+            color: #1e3c72;
+            margin-bottom: 15px;
+            font-weight: 600;
+        }
+        .operation-mix {
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+            margin: 15px 0;
+        }
+        .operation-item {
+            flex: 1;
+            min-width: 150px;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            border: none;
+            padding: 10px 25px;
+            font-weight: 600;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(30, 60, 114, 0.4);
+        }
+        .saved-scenarios {
+            margin-top: 30px;
+        }
+        .scenario-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+            border-left: 5px solid #28a745;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .scenario-details {
+            flex: 1;
+        }
+        .scenario-details h6 {
+            margin: 0;
+            font-weight: 600;
+            color: #1e3c72;
+        }
+        .scenario-details small {
+            color: #666;
+            display: block;
+            margin-top: 5px;
+        }
+        .nav-tabs {
+            border-bottom: 2px solid #1e3c72;
+        }
+        .nav-link {
+            color: white;
+            border: none;
+        }
+        .nav-link.active {
+            background: #1e3c72;
+            border-radius: 5px 5px 0 0;
+        }
+        .back-link {
+            color: white;
+            margin-bottom: 20px;
+            text-decoration: none;
+        }
+        .back-link:hover {
+            color: #ccc;
+        }
+        .info-box {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 12px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+            font-size: 14px;
+            color: #0c5aa0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-main">
+        <a href="/" class="back-link">← Back to Dashboard</a>
+
+        <div class="header">
+            <h1>⚙️ Custom Test Suite Builder</h1>
+            <p>Create your own custom S3 load testing scenarios</p>
+        </div>
+
+        <ul class="nav nav-tabs" role="tablist">
+            <li class="nav-item" role="presentation">
+                <button class="nav-link active" id="create-tab" data-bs-toggle="tab" data-bs-target="#create-panel" type="button">Create New</button>
+            </li>
+            <li class="nav-item" role="presentation">
+                <button class="nav-link" id="saved-tab" data-bs-toggle="tab" data-bs-target="#saved-panel" type="button">Saved Scenarios</button>
+            </li>
+        </ul>
+
+        <div class="tab-content">
+            <!-- Create Tab -->
+            <div class="tab-pane fade show active" id="create-panel" role="tabpanel">
+                <div class="card" style="margin-top: 20px;">
+                    <div class="card-header">Create New Custom Scenario</div>
+                    <div class="card-body">
+                        <div class="info-box">
+                            💡 Define your own test parameters: concurrency level, object size, operation mix, and duration.
+                        </div>
+
+                        <!-- Scenario Name -->
+                        <div class="form-section">
+                            <h5>Scenario Name</h5>
+                            <input type="text" id="scenarioName" class="form-control" placeholder="e.g., My Custom Read Test" required>
+                            <small class="text-muted">Use a descriptive name for your scenario</small>
+                        </div>
+
+                        <!-- Concurrency Settings -->
+                        <div class="form-section">
+                            <h5>Concurrency Settings</h5>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <label class="form-label">Concurrent Operations (Threads)</label>
+                                    <input type="number" id="concurrentOps" class="form-control" value="20" min="1" max="100" required>
+                                    <small class="text-muted">Number of parallel worker threads (1-100)</small>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Operations Per Thread</label>
+                                    <input type="number" id="operationsPerThread" class="form-control" value="50" min="1" max="1000" required>
+                                    <small class="text-muted">Operations each thread will execute (if not using duration)</small>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Object Size -->
+                        <div class="form-section">
+                            <h5>Object Size</h5>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <label class="form-label">Size Value</label>
+                                    <input type="number" id="objectSizeValue" class="form-control" value="1" min="1" required>
+                                </div>
+                                <div class="col-md-6">
+                                    <label class="form-label">Unit</label>
+                                    <select id="objectSizeUnit" class="form-select">
+                                        <option value="KB">KB (Kilobytes)</option>
+                                        <option value="MB" selected>MB (Megabytes)</option>
+                                        <option value="GB">GB (Gigabytes)</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <small class="text-muted d-block mt-2">Example: 1 MB = 1,048,576 bytes</small>
+                        </div>
+
+                        <!-- Operation Mix -->
+                        <div class="form-section">
+                            <h5>Operation Mix (%)</h5>
+                            <div class="info-box" style="margin-bottom: 15px;">
+                                Enter custom percentages (integers or decimals). Must add up to 100%.
+                            </div>
+                            <div class="operation-mix">
+                                <div class="operation-item">
+                                    <label class="form-label">PUT (Write)</label>
+                                    <input type="number" id="putOps" class="form-control" min="0" max="100" value="30" step="0.1" oninput="updateOperationMix()">
+                                </div>
+                                <div class="operation-item">
+                                    <label class="form-label">GET (Read)</label>
+                                    <input type="number" id="getOps" class="form-control" min="0" max="100" value="50" step="0.1" oninput="updateOperationMix()">
+                                </div>
+                                <div class="operation-item">
+                                    <label class="form-label">DELETE</label>
+                                    <input type="number" id="deleteOps" class="form-control" min="0" max="100" value="15" step="0.1" oninput="updateOperationMix()">
+                                </div>
+                                <div class="operation-item">
+                                    <label class="form-label">LIST</label>
+                                    <input type="number" id="listOps" class="form-control" min="0" max="100" value="5" step="0.1" oninput="updateOperationMix()">
+                                </div>
+                            </div>
+                            <div class="alert alert-info mt-3">
+                                Total: <strong id="totalPercent">100%</strong>
+                            </div>
+                        </div>
+
+                        <!-- Buttons -->
+                        <div style="margin-top: 25px;">
+                            <button class="btn btn-primary" onclick="saveScenario()">💾 Save Scenario</button>
+                            <button class="btn btn-secondary" onclick="resetForm()">Reset Form</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Saved Scenarios Tab -->
+            <div class="tab-pane fade" id="saved-panel" role="tabpanel">
+                <div style="margin-top: 20px;" id="savedScenariosContainer">
+                    <p class="text-muted">Loading saved scenarios...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Update operation mix percentages
+        function updateOperationMix() {
+            const put = parseFloat(document.getElementById('putOps').value) || 0;
+            const get = parseFloat(document.getElementById('getOps').value) || 0;
+            const del = parseFloat(document.getElementById('deleteOps').value) || 0;
+            const list = parseFloat(document.getElementById('listOps').value) || 0;
+
+            const total = put + get + del + list;
+            document.getElementById('totalPercent').textContent = total.toFixed(1) + '%';
+
+            // Color code based on validity
+            const totalElement = document.getElementById('totalPercent').parentElement;
+            if (Math.abs(total - 100) < 0.01) {  // Allow small floating point errors
+                totalElement.className = 'alert alert-success mt-3';
+            } else if (total > 100) {
+                totalElement.className = 'alert alert-danger mt-3';
+            } else {
+                totalElement.className = 'alert alert-warning mt-3';
+            }
+        }
+
+        // Calculate object size in bytes
+        function getObjectSizeBytes() {
+            const value = parseInt(document.getElementById('objectSizeValue').value);
+            const unit = document.getElementById('objectSizeUnit').value;
+
+            const multipliers = {
+                'KB': 1024,
+                'MB': 1024 * 1024,
+                'GB': 1024 * 1024 * 1024
+            };
+
+            return value * multipliers[unit];
+        }
+
+        // Save scenario
+        function saveScenario() {
+            const name = document.getElementById('scenarioName').value;
+            const put = parseFloat(document.getElementById('putOps').value) || 0;
+            const get = parseFloat(document.getElementById('getOps').value) || 0;
+            const del = parseFloat(document.getElementById('deleteOps').value) || 0;
+            const list = parseFloat(document.getElementById('listOps').value) || 0;
+            const total = put + get + del + list;
+
+            if (!name) {
+                alert('Please enter a scenario name');
+                return;
+            }
+
+            if (Math.abs(total - 100) > 0.01) {  // Allow small floating point errors
+                alert('Operation percentages must add up to 100% (current: ' + total.toFixed(1) + '%)');
+                return;
+            }
+
+            const scenario = {
+                name: name,
+                concurrent_ops: parseInt(document.getElementById('concurrentOps').value),
+                operations_per_thread: parseInt(document.getElementById('operationsPerThread').value),
+                object_size: getObjectSizeBytes(),
+                operation_mix: {
+                    'put': put,
+                    'get': get,
+                    'delete': del,
+                    'list': list
+                }
+            };
+
+            fetch('/api/custom-scenarios', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(scenario)
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    alert('Error: ' + data.error);
+                } else {
+                    alert('✅ Scenario saved! Name: ' + data.scenario_key);
+                    resetForm();
+                    loadSavedScenarios();
+                    // Switch to saved scenarios tab
+                    document.getElementById('saved-tab').click();
+                }
+            })
+            .catch(e => alert('Error: ' + e));
+        }
+
+        // Reset form
+        function resetForm() {
+            document.getElementById('scenarioName').value = '';
+            document.getElementById('concurrentOps').value = '20';
+            document.getElementById('operationsPerThread').value = '50';
+            document.getElementById('objectSizeValue').value = '1';
+            document.getElementById('objectSizeUnit').value = 'MB';
+            document.getElementById('putOps').value = '30';
+            document.getElementById('getOps').value = '50';
+            document.getElementById('deleteOps').value = '15';
+            document.getElementById('listOps').value = '5';
+            updateOperationMix();
+        }
+
+        // Load saved scenarios
+        function loadSavedScenarios() {
+            fetch('/api/custom-scenarios')
+            .then(r => r.json())
+            .then(data => {
+                const container = document.getElementById('savedScenariosContainer');
+
+                if (!data.scenarios || data.scenarios.length === 0) {
+                    container.innerHTML = '<p class="text-muted">No custom scenarios saved yet. Create one to get started!</p>';
+                    return;
+                }
+
+                let html = '<div class="saved-scenarios">';
+                data.scenarios.forEach(s => {
+                    const mixStr = Object.entries(s.operation_mix)
+                        .map(([k, v]) => `${k.toUpperCase()}: ${v}%`)
+                        .join(', ');
+                    const sizeStr = (s.object_size / (1024*1024)).toFixed(1) + ' MB';
+
+                    html += `
+                        <div class="scenario-item">
+                            <div class="scenario-details">
+                                <h6>${s.name}</h6>
+                                <small>Threads: ${s.concurrent_ops} | Size: ${sizeStr} | ${mixStr}</small>
+                            </div>
+                            <div>
+                                <button class="btn btn-sm btn-primary" onclick="useScenario('${s.key}')">Use</button>
+                                <button class="btn btn-sm btn-danger" onclick="deleteScenario('${s.key}')">Delete</button>
+                            </div>
+                        </div>
+                    `;
+                });
+                html += '</div>';
+                container.innerHTML = html;
+            })
+            .catch(e => {
+                document.getElementById('savedScenariosContainer').innerHTML =
+                    '<p class="text-danger">Error loading scenarios: ' + e + '</p>';
+            });
+        }
+
+        // Use scenario (redirect to main dashboard)
+        function useScenario(key) {
+            localStorage.setItem('selectedScenario', key);
+            window.location.href = '/';
+        }
+
+        // Delete scenario
+        function deleteScenario(key) {
+            if (confirm('Delete this scenario?')) {
+                fetch('/api/custom-scenarios/' + key, { method: 'DELETE' })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.error) {
+                        alert('Error: ' + data.error);
+                    } else {
+                        alert('Scenario deleted');
+                        loadSavedScenarios();
+                    }
+                })
+                .catch(e => alert('Error: ' + e));
+            }
+        }
+
+        // Load scenarios on page load
+        loadSavedScenarios();
+    </script>
+</body>
+</html>

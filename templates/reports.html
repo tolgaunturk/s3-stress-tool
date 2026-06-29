@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Reports - S3 Load Testing Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+    <style>
+        body {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            min-height: 100vh;
+            padding: 20px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .container-main {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        .header {
+            color: white;
+            text-align: center;
+            margin-bottom: 40px;
+            font-weight: 700;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
+        }
+        .header h1 {
+            font-size: 2.5rem;
+            margin: 0 0 10px 0;
+        }
+        .back-link {
+            color: white;
+            text-decoration: none;
+            font-size: 0.9rem;
+            margin-bottom: 20px;
+            display: inline-block;
+        }
+        .back-link:hover {
+            text-decoration: underline;
+        }
+        .card {
+            border: none;
+            border-radius: 10px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
+            margin-bottom: 25px;
+            background: white;
+        }
+        .card-header {
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            color: white;
+            border-radius: 10px 10px 0 0;
+            padding: 20px;
+            font-weight: 600;
+            border: none;
+        }
+        .card-body {
+            padding: 25px;
+        }
+        .report-card {
+            background: white;
+            border: 2px solid #e0e0e0;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            transition: all 0.3s;
+            cursor: pointer;
+        }
+        .report-card:hover {
+            border-color: #1e3c72;
+            box-shadow: 0 4px 15px rgba(30, 60, 114, 0.2);
+            transform: translateY(-2px);
+        }
+        .report-card.expanded {
+            border-color: #1e3c72;
+            background: #f0f6ff;
+        }
+        .report-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        .report-title {
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #1e3c72;
+            margin: 0;
+        }
+        .report-badge {
+            display: inline-block;
+            background: #1e3c72;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+        .report-meta {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 15px 0;
+        }
+        .meta-item {
+            background: #f8f9fa;
+            padding: 12px;
+            border-radius: 5px;
+            border-left: 4px solid #1e3c72;
+        }
+        .meta-label {
+            font-size: 0.85rem;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 5px;
+        }
+        .meta-value {
+            font-size: 1.3rem;
+            font-weight: 600;
+            color: #1e3c72;
+        }
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+            padding-top: 20px;
+            border-top: 1px solid #e0e0e0;
+        }
+        .metric-card {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .metric-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #1e3c72;
+            margin: 8px 0;
+        }
+        .metric-label {
+            font-size: 0.8rem;
+            color: #555;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .report-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 15px;
+            flex-wrap: wrap;
+        }
+        .action-btn {
+            padding: 8px 16px;
+            border-radius: 5px;
+            font-weight: 600;
+            text-decoration: none;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-size: 0.9rem;
+        }
+        .btn-csv {
+            background: #17a2b8;
+            color: white;
+        }
+        .btn-csv:hover {
+            background: #138496;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(23, 162, 184, 0.3);
+        }
+        .btn-json {
+            background: #28a745;
+            color: white;
+        }
+        .btn-json:hover {
+            background: #218838;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
+        }
+        .btn-view {
+            background: #1e3c72;
+            color: white;
+        }
+        .btn-view:hover {
+            background: #152a54;
+        }
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        .empty-state h3 {
+            color: #666;
+            margin-bottom: 10px;
+        }
+        .filters {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+        .filter-input {
+            padding: 8px 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 0.9rem;
+        }
+        .filter-input:focus {
+            border-color: #1e3c72;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(30, 60, 114, 0.1);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        .stat-box {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .stat-value {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #1e3c72;
+            margin: 10px 0;
+        }
+        .stat-label {
+            font-size: 0.9rem;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .expand-icon {
+            font-size: 1.5rem;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container-main">
+        <a href="/" class="back-link">← Back to Dashboard</a>
+
+        <div class="header">
+            <h1>📊 Test Reports</h1>
+            <p style="margin-bottom: 0; font-size: 0.9rem; opacity: 0.9;">View all your test runs and download results</p>
+        </div>
+
+        <!-- Summary Statistics -->
+        <div class="stats-grid" id="statsGrid">
+            <div class="stat-box">
+                <div class="stat-label">Total Tests</div>
+                <div class="stat-value" id="statTotalTests">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Avg IOPS</div>
+                <div class="stat-value" id="statAvgIOPS">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Avg Throughput</div>
+                <div class="stat-value" id="statAvgThroughput">0</div>
+            </div>
+            <div class="stat-box">
+                <div class="stat-label">Avg Success Rate</div>
+                <div class="stat-value" id="statAvgSuccess">0%</div>
+            </div>
+        </div>
+
+        <!-- Filters -->
+        <div class="card">
+            <div class="card-header">Filters & Search</div>
+            <div class="card-body">
+                <div class="filters">
+                    <input type="text" class="filter-input" id="searchInput" placeholder="🔍 Search by scenario or run ID..." onkeyup="filterReports()">
+                    <select class="filter-input" id="scenarioFilter" onchange="filterReports()">
+                        <option value="">All Scenarios</option>
+                    </select>
+                    <button class="action-btn btn-view" onclick="clearFilters()">Clear Filters</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Reports List -->
+        <div class="card">
+            <div class="card-header">All Test Reports</div>
+            <div class="card-body">
+                <div id="reportsContainer">
+                    <div class="empty-state">
+                        <h3>📋 No reports yet</h3>
+                        <p>Run a test on the dashboard to see results here!</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let allReports = [];
+
+        // Load reports on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            loadReports();
+        });
+
+        async function loadReports() {
+            try {
+                const response = await fetch('/api/reports');
+                const data = await response.json();
+                allReports = data.reports || [];
+
+                if (allReports.length === 0) {
+                    document.getElementById('reportsContainer').innerHTML = `
+                        <div class="empty-state">
+                            <h3>📋 No reports yet</h3>
+                            <p>Run a test on the dashboard to see results here!</p>
+                        </div>
+                    `;
+                    updateStats([]);
+                    return;
+                }
+
+                // Sort by date (newest first)
+                allReports.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+
+                renderReports(allReports);
+                populateScenarioFilter();
+                updateStats(allReports);
+            } catch (error) {
+                console.error('Error loading reports:', error);
+            }
+        }
+
+        function renderReports(reports) {
+            const container = document.getElementById('reportsContainer');
+
+            if (reports.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <h3>🔍 No reports found</h3>
+                        <p>Try adjusting your filters</p>
+                    </div>
+                `;
+                return;
+            }
+
+            container.innerHTML = reports.map(report => `
+                <div class="report-card" onclick="toggleExpand(this)">
+                    <div class="report-header">
+                        <div>
+                            <h3 class="report-title">${report.scenario}</h3>
+                            <small class="text-muted" style="display: block; margin-top: 5px;">
+                                Run ID: ${report.run_id}
+                            </small>
+                        </div>
+                        <div style="text-align: right;">
+                            <span class="report-badge">${formatDate(report.timestamp)}</span>
+                            <div style="margin-top: 10px; font-size: 1.5rem;" class="expand-icon">▼</div>
+                        </div>
+                    </div>
+
+                    <!-- Summary Row -->
+                    <div class="report-meta">
+                        <div class="meta-item">
+                            <div class="meta-label">IOPS</div>
+                            <div class="meta-value">${report.iops?.toFixed(2) || 'N/A'}</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="meta-label">Throughput</div>
+                            <div class="meta-value">${report.throughput_mbs?.toFixed(2) || 'N/A'} MB/s</div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="meta-label">Success Rate</div>
+                            <div class="meta-value" style="color: ${report.success_rate >= 95 ? '#28a745' : report.success_rate >= 80 ? '#ffc107' : '#dc3545'};">
+                                ${report.success_rate?.toFixed(1) || 'N/A'}%
+                            </div>
+                        </div>
+                        <div class="meta-item">
+                            <div class="meta-label">Latency</div>
+                            <div class="meta-value">${report.latency_avg?.toFixed(2) || 'N/A'} ms</div>
+                        </div>
+                    </div>
+
+                    <!-- Detailed Metrics (hidden by default) -->
+                    <div style="display: none;" class="expanded-details">
+                        <div class="metrics-grid">
+                            <div class="metric-card">
+                                <div class="metric-label">Avg Latency</div>
+                                <div class="metric-value">${report.latency_avg?.toFixed(2) || 'N/A'}</div>
+                                <div class="metric-label">ms</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">P50 Latency</div>
+                                <div class="metric-value">${report.latency_p50?.toFixed(2) || 'N/A'}</div>
+                                <div class="metric-label">ms</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">P99 Latency</div>
+                                <div class="metric-value">${report.latency_p99?.toFixed(2) || 'N/A'}</div>
+                                <div class="metric-label">ms</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">Total Operations</div>
+                                <div class="metric-value">${report.total_ops || 'N/A'}</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">Data Transferred</div>
+                                <div class="metric-value">${report.data_transferred_mb?.toFixed(2) || 'N/A'}</div>
+                                <div class="metric-label">MB</div>
+                            </div>
+                            <div class="metric-card">
+                                <div class="metric-label">Duration</div>
+                                <div class="metric-value">${report.duration || 'N/A'}</div>
+                                <div class="metric-label">sec</div>
+                            </div>
+                        </div>
+
+                        <!-- Download Buttons -->
+                        <div class="report-actions">
+                            <button class="action-btn btn-csv" onclick="exportReport('${report.run_id}', 'csv'); event.stopPropagation();">
+                                📥 Download CSV
+                            </button>
+                            <button class="action-btn btn-json" onclick="exportReport('${report.run_id}', 'json'); event.stopPropagation();">
+                                📥 Download JSON
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+
+        function toggleExpand(element) {
+            element.classList.toggle('expanded');
+            const details = element.querySelector('.expanded-details');
+            if (details) {
+                details.style.display = details.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+
+        function populateScenarioFilter() {
+            const scenarios = [...new Set(allReports.map(r => r.scenario))].sort();
+            const select = document.getElementById('scenarioFilter');
+            const currentValue = select.value;
+
+            scenarios.forEach(scenario => {
+                if (!select.querySelector(`option[value="${scenario}"]`)) {
+                    const option = document.createElement('option');
+                    option.value = scenario;
+                    option.textContent = scenario;
+                    select.appendChild(option);
+                }
+            });
+
+            select.value = currentValue;
+        }
+
+        function filterReports() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const scenarioFilter = document.getElementById('scenarioFilter').value;
+
+            const filtered = allReports.filter(report => {
+                const matchesSearch = !searchTerm ||
+                    report.scenario.toLowerCase().includes(searchTerm) ||
+                    report.run_id.toLowerCase().includes(searchTerm);
+                const matchesScenario = !scenarioFilter || report.scenario === scenarioFilter;
+                return matchesSearch && matchesScenario;
+            });
+
+            renderReports(filtered);
+        }
+
+        function clearFilters() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('scenarioFilter').value = '';
+            renderReports(allReports);
+        }
+
+        function updateStats(reports) {
+            if (reports.length === 0) {
+                document.getElementById('statTotalTests').textContent = '0';
+                document.getElementById('statAvgIOPS').textContent = '0';
+                document.getElementById('statAvgThroughput').textContent = '0';
+                document.getElementById('statAvgSuccess').textContent = '0%';
+                return;
+            }
+
+            const avgIops = reports.reduce((sum, r) => sum + (r.iops || 0), 0) / reports.length;
+            const avgThroughput = reports.reduce((sum, r) => sum + (r.throughput_mbs || 0), 0) / reports.length;
+            const avgSuccess = reports.reduce((sum, r) => sum + (r.success_rate || 0), 0) / reports.length;
+
+            document.getElementById('statTotalTests').textContent = reports.length;
+            document.getElementById('statAvgIOPS').textContent = avgIops.toFixed(2);
+            document.getElementById('statAvgThroughput').textContent = avgThroughput.toFixed(2);
+            document.getElementById('statAvgSuccess').textContent = avgSuccess.toFixed(1) + '%';
+        }
+
+        function exportReport(runId, format) {
+            window.location.href = `/api/reports/${runId}/export?format=${format}`;
+        }
+
+        function formatDate(timestamp) {
+            if (!timestamp) return 'Unknown';
+            const date = new Date(timestamp);
+            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
+        }
+    </script>
+</body>
+</html>
