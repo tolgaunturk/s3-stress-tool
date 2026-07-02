@@ -485,7 +485,24 @@ def policy_probe():
         probe('s3:ListBucket',             lambda: s3.list_objects_v2(Bucket=bucket_name, MaxKeys=1))
         probe('s3:GetBucketAcl',           lambda: s3.get_bucket_acl(Bucket=bucket_name))
         probe('s3:GetBucketPolicy',        lambda: s3.get_bucket_policy(Bucket=bucket_name))
-        probe('s3:GetBucketVersioning',    lambda: s3.get_bucket_versioning(Bucket=bucket_name))
+
+        # GetBucketVersioning: capture actual versioning status in Detail column
+        try:
+            vr = s3.get_bucket_versioning(Bucket=bucket_name)
+            vstatus = vr.get('Status') or 'Disabled (never enabled)'
+            mfa = vr.get('MFADelete')
+            detail = f'Versioning: {vstatus}' + (f' | MFA Delete: {mfa}' if mfa else '')
+            results['s3:GetBucketVersioning'] = {'status': 'ALLOWED', 'detail': detail}
+        except ClientError as e:
+            code = e.response['Error']['Code']
+            msg  = e.response['Error'].get('Message', '')
+            if code in DENIED_CODES or 'AccessDenied' in msg:
+                results['s3:GetBucketVersioning'] = {'status': 'DENIED', 'detail': code}
+            else:
+                results['s3:GetBucketVersioning'] = {'status': 'ERROR', 'detail': code}
+        except Exception as e:
+            results['s3:GetBucketVersioning'] = {'status': 'ERROR', 'detail': str(e)[:80]}
+
         probe('s3:GetBucketCors',          lambda: s3.get_bucket_cors(Bucket=bucket_name))
         probe('s3:GetObjectLockConfiguration', lambda: s3.get_object_lock_configuration(Bucket=bucket_name))
 
