@@ -204,6 +204,7 @@
                 <a href="/scenarios" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Learn about each test scenario">📋 View Test Scenarios</a>
                 <a href="/custom" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Create your own test scenarios">⚙️ Create Custom Scenario</a>
                 <a href="/analyze" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Analyze and visualize test reports">📊 Analyze Reports</a>
+                <button onclick="openBucketManager()" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Create buckets, folders and browse objects">🗂 Bucket Manager</button>
                 <button onclick="policyProbe()" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Scan what S3 operations are allowed with your current credentials">🔍 Policy Probe</button>
                 <button onclick="checkRetentionLock()" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Check if bucket has Object Lock (required for retention tests)">🔒 Check Object Lock</button>
                 <a href="/reports" class="btn btn-light btn-sm" style="margin-right: 10px;" title="View all test reports">📊 View Reports</a>
@@ -505,6 +506,76 @@
                                     <tr><td colspan="6" class="text-center text-muted">No reports yet</td></tr>
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bucket Manager Modal -->
+    <div class="modal fade" id="bucketManagerModal" tabindex="-1">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header" style="background: linear-gradient(135deg, #1b5e20 0%, #2e7d32 100%); color: white;">
+                    <h5 class="modal-title">🗂 Bucket Manager</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" style="padding:0;">
+                    <!-- Tabs -->
+                    <ul class="nav nav-tabs px-3 pt-2" id="bmTabs">
+                        <li class="nav-item">
+                            <button class="nav-link active" id="bmTabBuckets" onclick="bmShowTab('buckets')">🪣 Buckets</button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link" id="bmTabFolders" onclick="bmShowTab('folders')">📁 Folders &amp; Objects</button>
+                        </li>
+                    </ul>
+
+                    <!-- Buckets Tab -->
+                    <div id="bmPaneBuckets" style="padding:20px;">
+                        <!-- Create Bucket Form -->
+                        <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:15px;margin-bottom:20px;">
+                            <strong style="color:#166534;">➕ Create New Bucket</strong>
+                            <div style="display:flex;gap:10px;margin-top:10px;flex-wrap:wrap;">
+                                <input type="text" id="bmNewBucketName" class="form-control" style="max-width:280px;" placeholder="bucket-name">
+                                <input type="text" id="bmNewBucketRegion" class="form-control" style="max-width:160px;" placeholder="Region (e.g. us-east-1)">
+                                <button class="btn btn-success btn-sm" onclick="bmCreateBucket()">Create Bucket</button>
+                            </div>
+                            <div id="bmCreateBucketMsg" style="margin-top:8px;font-size:13px;"></div>
+                        </div>
+                        <!-- Bucket List -->
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+                            <strong>Your Buckets</strong>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="bmLoadBuckets()">🔄 Refresh</button>
+                        </div>
+                        <div id="bmBucketList">
+                            <div class="text-muted text-center py-3">Loading...</div>
+                        </div>
+                    </div>
+
+                    <!-- Folders & Objects Tab -->
+                    <div id="bmPaneFolders" style="padding:20px;display:none;">
+                        <!-- Breadcrumb + Create Folder -->
+                        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:15px;">
+                            <span style="font-size:13px;color:#555;">Path:</span>
+                            <span id="bmBreadcrumb" style="font-family:monospace;font-size:13px;background:#f0f0f0;padding:4px 10px;border-radius:4px;">
+                                <span style="color:#888;">Select a bucket first</span>
+                            </span>
+                            <button class="btn btn-outline-secondary btn-sm" onclick="bmNavigate(bmCurrentBucket, bmCurrentPrefix)" title="Refresh">🔄</button>
+                        </div>
+                        <!-- Create Folder Form -->
+                        <div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:12px;margin-bottom:15px;">
+                            <strong style="color:#1d4ed8;">📁 Create Folder</strong>
+                            <div style="display:flex;gap:10px;margin-top:8px;">
+                                <input type="text" id="bmNewFolderName" class="form-control" style="max-width:280px;" placeholder="folder-name">
+                                <button class="btn btn-primary btn-sm" onclick="bmCreateFolder()">Create</button>
+                            </div>
+                            <div id="bmCreateFolderMsg" style="margin-top:6px;font-size:13px;"></div>
+                        </div>
+                        <!-- Object/Folder List -->
+                        <div id="bmObjectList">
+                            <div class="text-muted text-center py-3">Select a bucket from the Buckets tab to browse.</div>
                         </div>
                     </div>
                 </div>
@@ -1131,6 +1202,185 @@
                 console.log('Credentials cleared');
             }
         }
+
+        // ── Bucket Manager ───────────────────────────────────────────────
+        let bmCurrentBucket = '';
+        let bmCurrentPrefix = '';
+
+        function _bmCreds() {
+            return {
+                endpoint_url: document.getElementById('endpointUrl').value,
+                access_key:   document.getElementById('accessKey').value,
+                secret_key:   document.getElementById('secretKey').value,
+                region:       document.getElementById('region').value,
+                bucket_name:  document.getElementById('bucketName').value,
+            };
+        }
+
+        function openBucketManager() {
+            const c = _bmCreds();
+            if (!c.access_key || !c.secret_key) {
+                alert('Please fill in Access Key and Secret Key first');
+                return;
+            }
+            const modal = new bootstrap.Modal(document.getElementById('bucketManagerModal'));
+            modal.show();
+            bmLoadBuckets();
+        }
+
+        function bmShowTab(tab) {
+            document.getElementById('bmPaneBuckets').style.display = tab === 'buckets' ? 'block' : 'none';
+            document.getElementById('bmPaneFolders').style.display = tab === 'folders' ? 'block' : 'none';
+            document.getElementById('bmTabBuckets').className = 'nav-link' + (tab === 'buckets' ? ' active' : '');
+            document.getElementById('bmTabFolders').className = 'nav-link' + (tab === 'folders' ? ' active' : '');
+        }
+
+        function bmLoadBuckets() {
+            const listDiv = document.getElementById('bmBucketList');
+            listDiv.innerHTML = '<div class="text-muted text-center py-2"><div class="spinner-border spinner-border-sm"></div> Loading buckets...</div>';
+            fetch('/api/manager/list-buckets', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(_bmCreds())
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { listDiv.innerHTML = `<div class="alert alert-danger">❌ ${data.error}</div>`; return; }
+                if (!data.buckets.length) { listDiv.innerHTML = '<div class="text-muted text-center py-3">No buckets found.</div>'; return; }
+                listDiv.innerHTML = `<table class="table table-sm table-hover" style="font-size:13px;">
+                    <thead><tr><th>Bucket Name</th><th>Created</th><th>Actions</th></tr></thead>
+                    <tbody>` +
+                    data.buckets.map(b => `<tr>
+                        <td><strong>${b.name}</strong></td>
+                        <td style="color:#888;">${new Date(b.created).toLocaleString()}</td>
+                        <td>
+                            <button class="btn btn-outline-primary btn-sm" onclick="bmBrowseBucket('${b.name}')" title="Browse contents">📂 Browse</button>
+                            <button class="btn btn-outline-danger btn-sm ms-1" onclick="bmDeleteBucket('${b.name}')" title="Delete (must be empty)">🗑</button>
+                        </td>
+                    </tr>`).join('') +
+                    `</tbody></table>`;
+            })
+            .catch(e => { listDiv.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
+        }
+
+        function bmCreateBucket() {
+            const name   = document.getElementById('bmNewBucketName').value.trim();
+            const region = document.getElementById('bmNewBucketRegion').value.trim() || document.getElementById('region').value;
+            const msgDiv = document.getElementById('bmCreateBucketMsg');
+            if (!name) { msgDiv.innerHTML = '<span style="color:red;">Bucket name is required.</span>'; return; }
+            msgDiv.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creating...';
+            fetch('/api/manager/create-bucket', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ..._bmCreds(), new_bucket_name: name, region })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { msgDiv.innerHTML = `<span style="color:red;">❌ ${data.error}</span>`; return; }
+                msgDiv.innerHTML = `<span style="color:green;">✅ Bucket <strong>${data.bucket}</strong> created!</span>`;
+                document.getElementById('bmNewBucketName').value = '';
+                bmLoadBuckets();
+            })
+            .catch(e => { msgDiv.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`; });
+        }
+
+        function bmDeleteBucket(name) {
+            if (!confirm(`Delete bucket "${name}"?\n\nThis cannot be undone. The bucket must be empty.`)) return;
+            fetch('/api/manager/delete-bucket', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ..._bmCreds(), target_bucket: name })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { alert('❌ ' + data.error); return; }
+                bmLoadBuckets();
+            })
+            .catch(e => alert('❌ ' + e.message));
+        }
+
+        function bmBrowseBucket(bucket) {
+            bmCurrentBucket = bucket;
+            bmCurrentPrefix = '';
+            bmShowTab('folders');
+            bmNavigate(bucket, '');
+        }
+
+        function bmNavigate(bucket, prefix) {
+            bmCurrentBucket = bucket;
+            bmCurrentPrefix = prefix;
+            const listDiv = document.getElementById('bmObjectList');
+            listDiv.innerHTML = '<div class="text-muted text-center py-2"><div class="spinner-border spinner-border-sm"></div> Loading...</div>';
+
+            // Breadcrumb
+            const parts = prefix ? prefix.split('/').filter(Boolean) : [];
+            let crumb = `<span style="cursor:pointer;color:#1d4ed8;" onclick="bmNavigate('${bucket}','')">🪣 ${bucket}</span>`;
+            let builtPrefix = '';
+            parts.forEach(p => {
+                builtPrefix += p + '/';
+                const snap = builtPrefix;
+                crumb += ` / <span style="cursor:pointer;color:#1d4ed8;" onclick="bmNavigate('${bucket}','${snap}')">${p}</span>`;
+            });
+            document.getElementById('bmBreadcrumb').innerHTML = crumb;
+
+            fetch('/api/manager/list-objects', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ..._bmCreds(), bucket_name: bucket, prefix })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { listDiv.innerHTML = `<div class="alert alert-danger">❌ ${data.error}</div>`; return; }
+                let html = '';
+                if (prefix) {
+                    const up = prefix.split('/').slice(0, -2).join('/');
+                    const upPrefix = up ? up + '/' : '';
+                    html += `<div style="padding:6px 0;font-size:13px;cursor:pointer;color:#555;" onclick="bmNavigate('${bucket}','${upPrefix}')">⬆ ..</div>`;
+                }
+                if (!data.folders.length && !data.objects.length) {
+                    html += '<div class="text-muted py-3 text-center">Empty folder.</div>';
+                }
+                data.folders.forEach(f => {
+                    const label = f.replace(prefix, '').replace('/', '');
+                    html += `<div style="padding:6px 4px;font-size:13px;cursor:pointer;border-bottom:1px solid #f0f0f0;" onclick="bmNavigate('${bucket}','${f}')">
+                        📁 <strong>${label}/</strong>
+                    </div>`;
+                });
+                data.objects.forEach(o => {
+                    const label = o.key.replace(prefix, '');
+                    const size  = o.size < 1024 ? o.size + ' B' : o.size < 1048576 ? (o.size/1024).toFixed(1) + ' KB' : (o.size/1048576).toFixed(2) + ' MB';
+                    html += `<div style="padding:6px 4px;font-size:13px;border-bottom:1px solid #f0f0f0;display:flex;justify-content:space-between;">
+                        <span>📄 ${label}</span>
+                        <span style="color:#888;">${size} &nbsp; ${new Date(o.last_modified).toLocaleDateString()}</span>
+                    </div>`;
+                });
+                if (data.truncated) html += '<div style="color:#888;font-size:12px;padding:8px 0;">⚠ First 500 items shown.</div>';
+                listDiv.innerHTML = html;
+            })
+            .catch(e => { listDiv.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
+        }
+
+        function bmCreateFolder() {
+            const name   = document.getElementById('bmNewFolderName').value.trim().replace(/\/$/, '');
+            const msgDiv = document.getElementById('bmCreateFolderMsg');
+            if (!name)              { msgDiv.innerHTML = '<span style="color:red;">Folder name is required.</span>'; return; }
+            if (!bmCurrentBucket)   { msgDiv.innerHTML = '<span style="color:red;">Browse a bucket first.</span>'; return; }
+            msgDiv.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Creating...';
+            fetch('/api/manager/create-folder', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ..._bmCreds(), bucket_name: bmCurrentBucket, prefix: bmCurrentPrefix, folder_name: name })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) { msgDiv.innerHTML = `<span style="color:red;">❌ ${data.error}</span>`; return; }
+                msgDiv.innerHTML = `<span style="color:green;">✅ Folder <strong>${name}/</strong> created!</span>`;
+                document.getElementById('bmNewFolderName').value = '';
+                bmNavigate(bmCurrentBucket, bmCurrentPrefix);
+            })
+            .catch(e => { msgDiv.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`; });
+        }
+        // ── End Bucket Manager ────────────────────────────────────────────
 
         function policyProbe() {
             const endpoint = document.getElementById('endpointUrl').value;

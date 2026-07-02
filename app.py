@@ -150,6 +150,162 @@ def capture_bucket_stats(s3_client, bucket_name, timeout_seconds=10):
         return None
 
 
+def _creds_from_request(data):
+    """Extract and validate S3 connection params from a request payload."""
+    endpoint_url = data.get('endpoint_url', '').strip()
+    access_key   = data.get('access_key', '').strip()
+    secret_key   = data.get('secret_key', '').strip()
+    region       = data.get('region', 'us-east-1')
+    bucket       = data.get('bucket_name', '').strip()
+    if not (access_key and secret_key):
+        raise ValueError('access_key and secret_key are required')
+    return create_s3_client(endpoint_url or None, access_key, secret_key, region), bucket
+
+
+@app.route('/api/manager/list-buckets', methods=['POST'])
+def manager_list_buckets():
+    """List all buckets accessible with the given credentials."""
+    try:
+        s3, _ = _creds_from_request(request.json)
+        resp = s3.list_buckets()
+        buckets = [
+            {'name': b['Name'], 'created': b['CreationDate'].isoformat()}
+            for b in resp.get('Buckets', [])
+        ]
+        return jsonify({'buckets': buckets})
+    except Exception as e:
+        logger.error(f"list-buckets error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/manager/create-bucket', methods=['POST'])
+def manager_create_bucket():
+    """Create a new S3 bucket."""
+    try:
+        data = request.json
+        new_bucket = data.get('new_bucket_name', '').strip()
+        if not new_bucket:
+            return jsonify({'error': 'new_bucket_name is required'}), 400
+
+        s3, _ = _creds_from_request(data)
+        region = data.get('region', 'us-east-1')
+
+        kwargs = {'Bucket': new_bucket}
+        # us-east-1 must NOT send a LocationConstraint (AWS quirk)
+        if region and region not in ('default', 'us-east-1', ''):
+            kwargs['CreateBucketConfiguration'] = {'LocationConstraint': region}
+
+        s3.create_bucket(**kwargs)
+        logger.info(f"Created bucket: {new_bucket}")
+        return jsonify({'status': 'created', 'bucket': new_bucket})
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg  = e.response['Error'].get('Message', str(e))
+        logger.warning(f"create-bucket ClientError: {code} — {msg}")
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"create-bucket error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/manager/delete-bucket', methods=['POST'])
+def manager_delete_bucket():
+    """Delete a bucket. Bucket MUST be empty — this endpoint never force-deletes."""
+    try:
+        data = request.json
+        target = data.get('target_bucket', '').strip()
+        if not target:
+            return jsonify({'error': 'target_bucket is required'}), 400
+
+        s3, _ = _creds_from_request(data)
+
+        # Safety: refuse if bucket has any objects
+        check = s3.list_objects_v2(Bucket=target, MaxKeys=1)
+        if check.get('KeyCount', 0) > 0:
+            return jsonify({'error': 'Bucket is not empty. Delete all objects first.'}), 400
+
+        s3.delete_bucket(Bucket=target)
+        logger.info(f"Deleted bucket: {target}")
+        return jsonify({'status': 'deleted', 'bucket': target})
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg  = e.response['Error'].get('Message', str(e))
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"delete-bucket error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/manager/list-objects', methods=['POST'])
+def manager_list_objects():
+    """List objects and sub-folders at a given prefix inside a bucket."""
+    try:
+        data = request.json
+        prefix = data.get('prefix', '')
+        s3, bucket = _creds_from_request(data)
+        if not bucket:
+            return jsonify({'error': 'bucket_name is required'}), 400
+
+        resp = s3.list_objects_v2(
+            Bucket=bucket,
+            Prefix=prefix,
+            Delimiter='/',
+            MaxKeys=500,
+        )
+
+        folders = [p['Prefix'] for p in resp.get('CommonPrefixes', [])]
+        objects = [
+            {
+                'key':  o['Key'],
+                'size': o['Size'],
+                'last_modified': o['LastModified'].isoformat(),
+            }
+            for o in resp.get('Contents', [])
+            if o['Key'] != prefix  # exclude the folder marker itself
+        ]
+        return jsonify({
+            'bucket':  bucket,
+            'prefix':  prefix,
+            'folders': folders,
+            'objects': objects,
+            'truncated': resp.get('IsTruncated', False),
+        })
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg  = e.response['Error'].get('Message', str(e))
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"list-objects error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/manager/create-folder', methods=['POST'])
+def manager_create_folder():
+    """Create a folder by writing an empty object with a trailing-slash key."""
+    try:
+        data = request.json
+        folder_name = data.get('folder_name', '').strip().strip('/')
+        prefix      = data.get('prefix', '')
+        if not folder_name:
+            return jsonify({'error': 'folder_name is required'}), 400
+
+        s3, bucket = _creds_from_request(data)
+        if not bucket:
+            return jsonify({'error': 'bucket_name is required'}), 400
+
+        key = f"{prefix}{folder_name}/"
+        s3.put_object(Bucket=bucket, Key=key, Body=b'')
+        logger.info(f"Created folder: s3://{bucket}/{key}")
+        return jsonify({'status': 'created', 'key': key, 'bucket': bucket})
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg  = e.response['Error'].get('Message', str(e))
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"create-folder error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/')
 def index():
     """Serve main dashboard."""
