@@ -139,6 +139,26 @@ SCENARIOS = {
         'operation_mix': {'put': 70, 'get': 30},
         'multipart_threshold': 5 * 1024 * 1024,
     },
+    'head_intensive': {
+        'name': 'HEAD Intensive (Metadata Only)',
+        'description': 'HeadObject operations only — tests metadata lookup latency and IOPS with zero data transfer. Great for measuring object existence checks.',
+        'category': 'metadata',
+        'concurrent_ops': 50,
+        'operations_per_thread': 200,
+        'object_size': 64 * 1024,  # 64 KB objects to populate the key pool quickly
+        'operation_mix': {'put': 20, 'head': 80},
+        'multipart_threshold': 5 * 1024 * 1024,
+    },
+    'policy_mixed': {
+        'name': 'Policy Validation Mix (PUT/GET/HEAD/DELETE/LIST)',
+        'description': 'Exercises all S3 operation types to validate bucket policy coverage. Useful for confirming which operations are allowed with the current IAM credentials.',
+        'category': 'mixed',
+        'concurrent_ops': 20,
+        'operations_per_thread': 100,
+        'object_size': 256 * 1024,  # 256 KB
+        'operation_mix': {'put': 30, 'get': 30, 'head': 20, 'delete': 10, 'list': 10},
+        'multipart_threshold': 5 * 1024 * 1024,
+    },
     'retention_governance': {
         'name': 'Retention Lock — GOVERNANCE Mode',
         'description': 'Write 1MB objects with GOVERNANCE retention lock (60s). Tests lock performance and throughput. Requires Object Lock enabled bucket.',

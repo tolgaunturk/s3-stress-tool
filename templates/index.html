@@ -204,6 +204,7 @@
                 <a href="/scenarios" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Learn about each test scenario">📋 View Test Scenarios</a>
                 <a href="/custom" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Create your own test scenarios">⚙️ Create Custom Scenario</a>
                 <a href="/analyze" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Analyze and visualize test reports">📊 Analyze Reports</a>
+                <button onclick="policyProbe()" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Scan what S3 operations are allowed with your current credentials">🔍 Policy Probe</button>
                 <button onclick="checkRetentionLock()" class="btn btn-light btn-sm" style="margin-right: 10px;" title="Check if bucket has Object Lock (required for retention tests)">🔒 Check Object Lock</button>
                 <a href="/reports" class="btn btn-light btn-sm" style="margin-right: 10px;" title="View all test reports">📊 View Reports</a>
                 <button class="btn btn-light btn-sm" id="latestReportBtn" onclick="showLatestReport()" style="display: none;" title="View your latest test result">⭐ Latest Result</button>
@@ -220,6 +221,7 @@
                         <div class="mb-3">
                             <label class="form-label">Endpoint URL</label>
                             <input type="text" class="form-control" id="endpointUrl" placeholder="http://ceph.example.com:7480">
+                            <small class="text-muted">Leave blank to connect to <strong>AWS S3</strong> directly</small>
                         </div>
 
                         <!-- Access Key -->
@@ -505,6 +507,25 @@
                             </table>
                         </div>
                     </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Policy Probe Modal -->
+    <div class="modal fade" id="policyProbeModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header" style="background: linear-gradient(135deg, #1a237e 0%, #283593 100%); color: white;">
+                    <h5 class="modal-title">🔍 Policy Probe — Permission Matrix</h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body" id="policyProbeContent">
+                    <div class="spinner-border spinner-border-sm" role="status"></div> Running permission checks...
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-primary" onclick="policyProbe()">🔄 Re-run</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 </div>
             </div>
         </div>
@@ -1109,6 +1130,78 @@
                 document.getElementById('saveCreds').checked = false;
                 console.log('Credentials cleared');
             }
+        }
+
+        function policyProbe() {
+            const endpoint = document.getElementById('endpointUrl').value;
+            const accessKey = document.getElementById('accessKey').value;
+            const secretKey = document.getElementById('secretKey').value;
+            const bucket = document.getElementById('bucketName').value;
+            const region = document.getElementById('region').value;
+
+            if (!accessKey || !secretKey || !bucket) {
+                alert('Please fill in Access Key, Secret Key and Bucket Name first');
+                return;
+            }
+
+            const contentDiv = document.getElementById('policyProbeContent');
+            contentDiv.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Running permission checks on <strong>' + bucket + '</strong>...';
+
+            const modal = new bootstrap.Modal(document.getElementById('policyProbeModal'));
+            modal.show();
+
+            fetch('/api/policy/probe', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ bucket_name: bucket, endpoint_url: endpoint, access_key: accessKey, secret_key: secretKey, region: region })
+            })
+            .then(r => r.json())
+            .then(data => {
+                if (data.error) {
+                    contentDiv.innerHTML = `<div class="alert alert-danger">❌ Error: ${data.error}</div>`;
+                    return;
+                }
+
+                const statusStyle = {
+                    'ALLOWED': 'background:#d4edda;color:#155724;border:1px solid #c3e6cb;',
+                    'DENIED':  'background:#f8d7da;color:#721c24;border:1px solid #f5c6cb;',
+                    'ERROR':   'background:#fff3cd;color:#856404;border:1px solid #ffeeba;',
+                    'SKIPPED': 'background:#e2e3e5;color:#383d41;border:1px solid #d6d8db;',
+                };
+                const statusIcon = { 'ALLOWED': '✅', 'DENIED': '❌', 'ERROR': '⚠️', 'SKIPPED': '—' };
+
+                const groups = {
+                    'Bucket Operations': ['s3:HeadBucket','s3:ListBucket','s3:GetBucketAcl','s3:GetBucketPolicy','s3:GetBucketVersioning','s3:GetBucketCors','s3:GetObjectLockConfiguration'],
+                    'Object Operations': ['s3:PutObject','s3:GetObject','s3:HeadObject','s3:GetObjectAcl','s3:DeleteObject'],
+                };
+
+                let html = `<p style="color:#555;font-size:13px;">Endpoint: <strong>${data.endpoint}</strong> &nbsp;|&nbsp; Bucket: <strong>${data.bucket}</strong></p>`;
+
+                for (const [groupName, ops] of Object.entries(groups)) {
+                    html += `<div style="font-weight:700;color:#1a237e;margin:16px 0 8px;">${groupName}</div>`;
+                    html += `<table class="table table-sm" style="font-size:13px;"><thead><tr><th>Operation</th><th>Status</th><th>Detail</th></tr></thead><tbody>`;
+                    for (const op of ops) {
+                        const r = data.results[op] || { status: 'SKIPPED', detail: null };
+                        const badge = `<span style="padding:3px 10px;border-radius:20px;font-weight:600;font-size:12px;${statusStyle[r.status]}">${statusIcon[r.status]} ${r.status}</span>`;
+                        html += `<tr><td><code>${op}</code></td><td>${badge}</td><td style="color:#888;font-size:12px;">${r.detail || ''}</td></tr>`;
+                    }
+                    html += `</tbody></table>`;
+                }
+
+                const allowed = Object.values(data.results).filter(r => r.status === 'ALLOWED').length;
+                const denied  = Object.values(data.results).filter(r => r.status === 'DENIED').length;
+                const total   = Object.values(data.results).filter(r => r.status !== 'SKIPPED').length;
+
+                html += `<div style="background:#f0f4ff;padding:12px;border-radius:8px;border-left:4px solid #3949ab;font-size:13px;margin-top:8px;">
+                    <strong>Summary:</strong> ${allowed}/${total} operations allowed &nbsp;|&nbsp; ${denied} denied
+                    ${denied > 0 ? '<br><span style="color:#721c24;">⚠ Some operations are denied — load tests using those operation types will show failed ops.</span>' : ''}
+                </div>`;
+
+                contentDiv.innerHTML = html;
+            })
+            .catch(e => {
+                contentDiv.innerHTML = `<div class="alert alert-danger">❌ Error: ${e.message}</div>`;
+            });
         }
 
         function checkRetentionLock() {

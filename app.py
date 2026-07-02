@@ -5,6 +5,7 @@ Ceph S3 Load Testing Tool - Flask Web Application
 from flask import Flask, render_template, request, jsonify, send_file
 from flask_cors import CORS
 import boto3
+from botocore.exceptions import ClientError
 import logging
 import os
 import json
@@ -90,14 +91,17 @@ session_manager = SessionManager()
 
 
 def create_s3_client(endpoint_url, access_key, secret_key, region='default'):
-    """Create S3 client for Ceph or other S3-compatible storage."""
-    return boto3.client(
-        's3',
-        endpoint_url=endpoint_url,
-        aws_access_key_id=access_key,
-        aws_secret_access_key=secret_key,
-        region_name=region,
-    )
+    """Create S3 client for AWS S3 or any S3-compatible endpoint (Ceph, MinIO, etc.).
+    Leave endpoint_url blank/None to connect to native AWS S3.
+    """
+    kwargs = {
+        'aws_access_key_id': access_key,
+        'aws_secret_access_key': secret_key,
+        'region_name': region if region not in ('default', '', None) else 'us-east-1',
+    }
+    if endpoint_url and endpoint_url.strip():
+        kwargs['endpoint_url'] = endpoint_url.strip()
+    return boto3.client('s3', **kwargs)
 
 
 def capture_bucket_stats(s3_client, bucket_name, timeout_seconds=10):
@@ -162,6 +166,92 @@ def reports_page():
 def analyze_page():
     """Serve report analysis page."""
     return render_template('analyze.html')
+
+
+@app.route('/api/policy/probe', methods=['POST'])
+def policy_probe():
+    """Run a permission matrix scan against a bucket with the given credentials.
+    Tests each S3 operation and reports ALLOWED / DENIED / ERROR / SKIPPED.
+    Safe to run — uses a short-lived probe object that is cleaned up automatically.
+    """
+    try:
+        data = request.json
+        bucket_name = data.get('bucket_name', '').strip()
+        endpoint_url = data.get('endpoint_url', '').strip()
+        access_key = data.get('access_key', '').strip()
+        secret_key = data.get('secret_key', '').strip()
+        region = data.get('region', 'us-east-1')
+
+        if not all([bucket_name, access_key, secret_key]):
+            return jsonify({'error': 'bucket_name, access_key and secret_key are required'}), 400
+
+        s3 = create_s3_client(endpoint_url or None, access_key, secret_key, region)
+        results = {}
+        PROBE_KEY = '__policy_probe_test__'
+
+        # Errors that mean "allowed but nothing configured yet"
+        EMPTY_CONFIG_CODES = {
+            'NoSuchCORSConfiguration', 'NoSuchBucketPolicy',
+            'NoSuchLifecycleConfiguration', 'ReplicationConfigurationNotFoundError',
+            'ObjectLockConfigurationNotFoundError', 'NoSuchObjectLockConfiguration',
+        }
+        DENIED_CODES = {'AccessDenied', 'AllAccessDisabled', 'Forbidden', '403'}
+
+        def probe(name, fn, skip_if_denied=None):
+            """Run fn(); classify result as ALLOWED / DENIED / ERROR / SKIPPED."""
+            if skip_if_denied and results.get(skip_if_denied, {}).get('status') == 'DENIED':
+                results[name] = {'status': 'SKIPPED', 'detail': f'Skipped — {skip_if_denied} was DENIED'}
+                return
+            try:
+                fn()
+                results[name] = {'status': 'ALLOWED', 'detail': None}
+            except ClientError as e:
+                code = e.response['Error']['Code']
+                msg = e.response['Error'].get('Message', '')
+                if code in EMPTY_CONFIG_CODES:
+                    results[name] = {'status': 'ALLOWED', 'detail': f'Not configured ({code})'}
+                elif code in DENIED_CODES or 'AccessDenied' in msg:
+                    results[name] = {'status': 'DENIED', 'detail': code}
+                else:
+                    results[name] = {'status': 'ERROR', 'detail': code}
+            except Exception as e:
+                results[name] = {'status': 'ERROR', 'detail': str(e)[:80]}
+
+        # --- Bucket-level operations ---
+        probe('s3:HeadBucket',             lambda: s3.head_bucket(Bucket=bucket_name))
+        probe('s3:ListBucket',             lambda: s3.list_objects_v2(Bucket=bucket_name, MaxKeys=1))
+        probe('s3:GetBucketAcl',           lambda: s3.get_bucket_acl(Bucket=bucket_name))
+        probe('s3:GetBucketPolicy',        lambda: s3.get_bucket_policy(Bucket=bucket_name))
+        probe('s3:GetBucketVersioning',    lambda: s3.get_bucket_versioning(Bucket=bucket_name))
+        probe('s3:GetBucketCors',          lambda: s3.get_bucket_cors(Bucket=bucket_name))
+        probe('s3:GetObjectLockConfiguration', lambda: s3.get_object_lock_configuration(Bucket=bucket_name))
+
+        # --- Object operations: write probe object first, then read/head/delete ---
+        probe('s3:PutObject',    lambda: s3.put_object(Bucket=bucket_name, Key=PROBE_KEY, Body=b'probe'))
+
+        if results.get('s3:PutObject', {}).get('status') == 'ALLOWED':
+            probe('s3:GetObject',    lambda: s3.get_object(Bucket=bucket_name, Key=PROBE_KEY))
+            probe('s3:HeadObject',   lambda: s3.head_object(Bucket=bucket_name, Key=PROBE_KEY))
+            probe('s3:GetObjectAcl', lambda: s3.get_object_acl(Bucket=bucket_name, Key=PROBE_KEY))
+            probe('s3:DeleteObject', lambda: s3.delete_object(Bucket=bucket_name, Key=PROBE_KEY))
+        else:
+            for op in ('s3:GetObject', 's3:HeadObject', 's3:GetObjectAcl', 's3:DeleteObject'):
+                results[op] = {'status': 'SKIPPED', 'detail': 'Skipped — PutObject was not ALLOWED'}
+
+        # Clean up probe object if it wasn't deleted (e.g. DeleteObject was DENIED)
+        if results.get('s3:PutObject', {}).get('status') == 'ALLOWED' and \
+           results.get('s3:DeleteObject', {}).get('status') != 'ALLOWED':
+            try:
+                s3.delete_object(Bucket=bucket_name, Key=PROBE_KEY)
+            except Exception:
+                pass
+
+        logger.info(f"Policy probe on bucket '{bucket_name}': {json.dumps({k: v['status'] for k, v in results.items()})}")
+        return jsonify({'results': results, 'bucket': bucket_name, 'endpoint': endpoint_url or 'AWS S3'})
+
+    except Exception as e:
+        logger.error(f"Policy probe error: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/retention/check', methods=['POST'])

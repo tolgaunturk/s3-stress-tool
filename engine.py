@@ -93,7 +93,8 @@ class MetricsCollector:
         iops = self._total_ops / elapsed if elapsed > 0 else 0
 
         # Read/Write IOPS
-        read_ops = self._operation_counts.get('get', 0) + self._operation_counts.get('list', 0)
+        read_ops = (self._operation_counts.get('get', 0) + self._operation_counts.get('list', 0)
+                    + self._operation_counts.get('head', 0))
         write_ops = (self._operation_counts.get('put', 0) + self._operation_counts.get('delete', 0)
                      + self._operation_counts.get('multipart', 0) + self._operation_counts.get('put_locked', 0))
         read_iops = read_ops / elapsed if elapsed > 0 else 0
@@ -346,6 +347,18 @@ class S3Worker:
                 error=str(e),
             )
 
+    def execute_head(self):
+        """Execute a HEAD operation (HeadObject — metadata check, no data download)."""
+        start = time.time()
+        try:
+            key = self._get_or_create_key()
+            self.s3_client.head_object(Bucket=self.bucket_name, Key=key)
+            elapsed = time.time() - start
+            return OperationResult(success=True, operation='head', elapsed=elapsed, bytes_transferred=0, timestamp=time.time())
+        except Exception as e:
+            elapsed = time.time() - start
+            return OperationResult(success=False, operation='head', elapsed=elapsed, bytes_transferred=0, timestamp=time.time(), error=str(e))
+
     def execute_put_locked(self):
         """PUT an object and immediately apply a retention lock."""
         start = time.time()
@@ -434,6 +447,8 @@ class S3Worker:
             return self.execute_delete()
         elif operation_type == 'list':
             return self.execute_list()
+        elif operation_type == 'head':
+            return self.execute_head()
         elif operation_type == 'put_locked':
             return self.execute_put_locked()
         elif operation_type == 'delete_locked':
