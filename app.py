@@ -306,6 +306,62 @@ def manager_create_folder():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/manager/delete-object', methods=['POST'])
+def manager_delete_object():
+    """Delete a single object from a bucket."""
+    try:
+        data = request.json
+        key = data.get('key', '').strip()
+        if not key:
+            return jsonify({'error': 'key is required'}), 400
+
+        s3, bucket = _creds_from_request(data)
+        if not bucket:
+            return jsonify({'error': 'bucket_name is required'}), 400
+
+        s3.delete_object(Bucket=bucket, Key=key)
+        logger.info(f"Deleted object: s3://{bucket}/{key}")
+        return jsonify({'status': 'deleted', 'key': key, 'bucket': bucket})
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg  = e.response['Error'].get('Message', str(e))
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"delete-object error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/manager/delete-objects', methods=['POST'])
+def manager_delete_objects():
+    """Bulk delete up to 1000 objects from a bucket."""
+    try:
+        data = request.json
+        keys = data.get('keys', [])
+        if not keys:
+            return jsonify({'error': 'keys array is required'}), 400
+
+        s3, bucket = _creds_from_request(data)
+        if not bucket:
+            return jsonify({'error': 'bucket_name is required'}), 400
+
+        to_delete = [{'Key': k} for k in keys[:1000]]
+        resp = s3.delete_objects(
+            Bucket=bucket,
+            Delete={'Objects': to_delete, 'Quiet': False}
+        )
+        deleted = [d['Key'] for d in resp.get('Deleted', [])]
+        errors  = resp.get('Errors', [])
+        logger.info(f"Bulk deleted {len(deleted)} objects from s3://{bucket}/, {len(errors)} errors")
+        return jsonify({'status': 'done', 'deleted': deleted, 'errors': errors, 'bucket': bucket})
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg  = e.response['Error'].get('Message', str(e))
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"delete-objects error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/')
 def index():
     """Serve main dashboard."""
