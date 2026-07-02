@@ -362,6 +362,57 @@ def manager_delete_objects():
         return jsonify({'error': str(e)}), 500
 
 
+@app.route('/api/manager/empty-bucket', methods=['POST'])
+def manager_empty_bucket():
+    """Delete ALL objects in a bucket across all pages (paginated).
+    Pass delete_bucket=True to also delete the bucket itself when empty.
+    Returns total objects deleted.
+    """
+    try:
+        data = request.json
+        s3, bucket = _creds_from_request(data)
+        if not bucket:
+            return jsonify({'error': 'bucket_name is required'}), 400
+
+        delete_bucket_after = data.get('delete_bucket', False)
+        deleted_count = 0
+        continuation_token = None
+
+        while True:
+            kwargs = {'Bucket': bucket, 'MaxKeys': 1000}
+            if continuation_token:
+                kwargs['ContinuationToken'] = continuation_token
+
+            resp = s3.list_objects_v2(**kwargs)
+            objects = resp.get('Contents', [])
+            if not objects:
+                break
+
+            to_delete = [{'Key': o['Key']} for o in objects]
+            s3.delete_objects(Bucket=bucket, Delete={'Objects': to_delete, 'Quiet': True})
+            deleted_count += len(objects)
+
+            if resp.get('IsTruncated'):
+                continuation_token = resp.get('NextContinuationToken')
+            else:
+                break
+
+        if delete_bucket_after:
+            s3.delete_bucket(Bucket=bucket)
+            logger.info(f"Emptied and deleted bucket: {bucket} ({deleted_count} objects)")
+            return jsonify({'status': 'deleted', 'bucket': bucket, 'deleted_count': deleted_count})
+
+        logger.info(f"Emptied bucket: {bucket} ({deleted_count} objects)")
+        return jsonify({'status': 'emptied', 'bucket': bucket, 'deleted_count': deleted_count})
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg  = e.response['Error'].get('Message', str(e))
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"empty-bucket error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/')
 def index():
     """Serve main dashboard."""

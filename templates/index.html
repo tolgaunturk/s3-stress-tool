@@ -675,10 +675,30 @@
                         <div id="bmCreateFolderMsg" style="margin-top:6px;font-size:13px;"></div>
                     </div>
                     <!-- Bulk delete bar (shown when objects are selected) -->
-                    <div id="bmBulkBar" style="display:none;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;margin-bottom:12px;display:none;align-items:center;gap:10px;">
-                        <span id="bmSelectedCount" style="font-size:13px;font-weight:600;color:#dc2626;"></span>
-                        <button class="btn btn-danger btn-sm" onclick="bmDeleteSelected()">🗑 Delete Selected</button>
+                    <div id="bmBulkBar" style="display:none;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span id="bmSelectedCount" style="font-size:13px;font-weight:600;color:#dc2626;flex-shrink:0;"></span>
+                        <button class="btn btn-danger btn-sm" id="bmDeleteSelectedBtn" onclick="bmDeleteSelected()">🗑 Delete Selected</button>
                         <button class="btn btn-outline-secondary btn-sm" onclick="bmClearSelection()">✕ Clear</button>
+                        <!-- Progress bar (shown during deletion) -->
+                        <div id="bmDeleteProgressWrap" style="display:none;width:100%;margin-top:6px;">
+                            <div style="display:flex;justify-content:space-between;font-size:11px;color:#dc2626;margin-bottom:3px;">
+                                <span id="bmDeleteProgressLabel">Deleting...</span>
+                                <span id="bmDeleteProgressPct">0%</span>
+                            </div>
+                            <div style="background:#fee2e2;border-radius:4px;height:7px;overflow:hidden;">
+                                <div id="bmDeleteProgressBar" style="height:7px;background:linear-gradient(90deg,#dc2626,#f87171);border-radius:4px;width:0%;transition:width 0.25s;"></div>
+                            </div>
+                        </div>
+                    </div>
+                    <!-- Delete All Objects bar -->
+                    <div id="bmDeleteAllBar" style="display:none;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;padding:10px 14px;margin-bottom:12px;align-items:center;gap:10px;flex-wrap:wrap;">
+                        <span style="font-size:13px;font-weight:600;color:#c2410c;flex-shrink:0;" id="bmDeleteAllLabel"></span>
+                        <div id="bmDeleteAllProgressWrap" style="display:none;width:100%;margin-top:4px;">
+                            <div style="display:flex;align-items:center;gap:8px;">
+                                <div style="width:20px;height:20px;border:3px solid #fed7aa;border-top:3px solid #ea580c;border-radius:50%;animation:spin 0.8s linear infinite;flex-shrink:0;"></div>
+                                <span id="bmDeleteAllStatus" style="font-size:12px;color:#c2410c;font-weight:600;"></span>
+                            </div>
+                        </div>
                     </div>
                     <!-- Object list -->
                     <div id="bmObjectList"><div class="text-muted text-center py-3">Select a bucket from the Buckets tab to browse.</div></div>
@@ -1134,9 +1154,10 @@
                 data.buckets.map(b => `<tr>
                     <td><strong>${b.name}</strong></td>
                     <td style="color:#888;">${new Date(b.created).toLocaleString()}</td>
-                    <td>
+                    <td style="white-space:nowrap;">
                         <button class="btn btn-outline-primary btn-sm" onclick="bmBrowseBucket('${b.name}')">📂 Browse</button>
-                        <button class="btn btn-outline-danger btn-sm ms-1" onclick="bmDeleteBucket('${b.name}')">🗑</button>
+                        <button class="btn btn-outline-warning btn-sm ms-1" onclick="bmEmptyBucket('${b.name}', false)" title="Delete all objects inside (keep bucket)">🧹 Empty</button>
+                        <button class="btn btn-outline-danger btn-sm ms-1" onclick="bmDeleteBucket('${b.name}')" title="Delete bucket (must be empty)">🗑 Delete</button>
                     </td>
                 </tr>`).join('') +
                 `</tbody></table>`;
@@ -1162,11 +1183,71 @@
     }
 
     function bmDeleteBucket(name) {
-        if (!confirm(`Delete bucket "${name}"?\n\nBucket must be empty. This cannot be undone.`)) return;
+        if (!confirm(`Delete bucket "${name}"?\n\nBucket must be empty. Use 🧹 Empty first if it has objects.\nThis cannot be undone.`)) return;
         fetch('/api/manager/delete-bucket', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({..._bmCreds(), target_bucket: name}) })
         .then(r => r.json())
-        .then(data => { if (data.error) { alert('❌ ' + data.error); return; } bmLoadBuckets(); })
+        .then(data => {
+            if (data.error) {
+                // Offer force-empty + delete if bucket is not empty
+                if (data.error.includes('not empty')) {
+                    if (confirm(`Bucket "${name}" is not empty.\n\nDo you want to DELETE ALL OBJECTS and then delete the bucket?\n\n⚠ This permanently deletes everything inside.`)) {
+                        bmEmptyBucket(name, true);
+                    }
+                } else {
+                    alert('❌ ' + data.error);
+                }
+                return;
+            }
+            bmLoadBuckets();
+        })
         .catch(e => alert('❌ ' + e.message));
+    }
+
+    // Empty all objects in a bucket, optionally delete the bucket too
+    async function bmEmptyBucket(bucket, thenDelete) {
+        const action = thenDelete ? `empty ALL objects AND DELETE bucket "${bucket}"` : `delete ALL objects inside "${bucket}"`;
+        if (!confirm(`Are you sure you want to ${action}?\n\nThis operation cannot be undone and may take a while for large buckets.`)) return;
+
+        const bar = document.getElementById('bmDeleteAllBar');
+        const label = document.getElementById('bmDeleteAllLabel');
+        const progressWrap = document.getElementById('bmDeleteAllProgressWrap');
+        const statusSpan = document.getElementById('bmDeleteAllStatus');
+
+        bar.style.display = 'flex';
+        label.textContent = thenDelete ? `Emptying + deleting "${bucket}"...` : `Emptying "${bucket}"...`;
+        progressWrap.style.display = 'block';
+        statusSpan.textContent = 'Connecting to bucket...';
+        bmShowTab('folders');
+
+        try {
+            const resp = await fetch('/api/manager/empty-bucket', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ ..._bmCreds(), bucket_name: bucket, delete_bucket: thenDelete })
+            });
+            const data = await resp.json();
+
+            if (data.error) {
+                progressWrap.style.display = 'none';
+                label.textContent = `❌ Error: ${data.error}`;
+                bar.style.background = '#fef2f2';
+                bar.style.borderColor = '#fca5a5';
+                return;
+            }
+
+            bar.style.display = 'none';
+            progressWrap.style.display = 'none';
+            if (thenDelete) {
+                alert(`✅ Bucket "${bucket}" emptied (${data.deleted_count} objects) and deleted.`);
+                bmLoadBuckets();
+            } else {
+                alert(`✅ Emptied "${bucket}": ${data.deleted_count} objects deleted.`);
+                bmNavigate(bucket, '');
+            }
+        } catch(e) {
+            progressWrap.style.display = 'none';
+            label.textContent = `❌ Error: ${e.message}`;
+        }
     }
 
     function bmBrowseBucket(bucket) {
@@ -1182,6 +1263,8 @@
         bmCurrentPrefix = prefix;
         bmSelectedKeys.clear();
         bmUpdateBulkBar();
+        // Hide the delete-all bar when navigating
+        document.getElementById('bmDeleteAllBar').style.display = 'none';
         const d = document.getElementById('bmObjectList');
         d.innerHTML = '<div class="text-muted text-center py-2"><div class="spinner-border spinner-border-sm"></div> Loading...</div>';
 
@@ -1216,9 +1299,10 @@
                 </div>`;
             });
             if (data.objects.length) {
+                const truncNote = data.truncated ? ` <span style="color:#f59e0b;font-size:10px;">(showing first 500 — use 🧹 Empty to delete all)</span>` : '';
                 html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 4px;border-bottom:1px solid #e5e7eb;font-size:11px;font-weight:700;color:#6b7280;">
                     <input type="checkbox" id="bmSelectAll" onchange="bmToggleAll(this)" style="cursor:pointer;accent-color:#3b82f6;">
-                    <span>SELECT ALL</span>
+                    <span>SELECT ALL${truncNote}</span>
                     <span style="margin-left:auto;">SIZE</span>
                     <span style="min-width:80px;text-align:right;">DATE</span>
                     <span style="min-width:60px;text-align:right;">ACTION</span>
@@ -1227,7 +1311,7 @@
                     const label = o.key.replace(prefix,'');
                     const size = o.size < 1024 ? o.size+' B' : o.size < 1048576 ? (o.size/1024).toFixed(1)+' KB' : (o.size/1048576).toFixed(2)+' MB';
                     const safeKey = o.key.replace(/'/g, "\\'");
-                    html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:13px;border-bottom:1px solid #f0f0f0;" id="obj-row-${encodeURIComponent(o.key).replace(/%/g,'_')}">
+                    html += `<div style="display:flex;align-items:center;gap:8px;padding:6px 4px;font-size:13px;border-bottom:1px solid #f0f0f0;">
                         <input type="checkbox" class="bm-obj-cb" data-key="${o.key.replace(/"/g,'&quot;')}" onchange="bmToggleKey(this,'${safeKey}')" style="cursor:pointer;accent-color:#3b82f6;flex-shrink:0;">
                         <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${o.key}">📄 ${label}</span>
                         <span style="color:#888;white-space:nowrap;">${size}</span>
@@ -1236,7 +1320,9 @@
                     </div>`;
                 });
             }
-            if (data.truncated) html += '<div style="color:#888;font-size:12px;padding:8px 0;">⚠ First 500 items shown.</div>';
+            if (data.truncated) html += `<div style="background:#fffbeb;border:1px solid #fcd34d;border-radius:6px;padding:8px 12px;margin-top:8px;font-size:12px;color:#92400e;">
+                ⚠ Showing first 500 objects. Use <strong>🧹 Empty Bucket</strong> in the Buckets tab to delete all ${data.truncated ? 'remaining' : ''} objects at once.
+            </div>`;
             d.innerHTML = html;
         })
         .catch(e => { d.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
@@ -1263,6 +1349,9 @@
         if (bmSelectedKeys.size > 0) {
             bar.style.display = 'flex';
             document.getElementById('bmSelectedCount').textContent = bmSelectedKeys.size + ' object(s) selected';
+            document.getElementById('bmDeleteProgressWrap').style.display = 'none';
+            document.getElementById('bmDeleteSelectedBtn').disabled = false;
+            document.getElementById('bmDeleteSelectedBtn').textContent = '🗑 Delete Selected';
         } else {
             bar.style.display = 'none';
         }
@@ -1293,28 +1382,59 @@
         .catch(e => alert('❌ ' + e.message));
     }
 
-    function bmDeleteSelected() {
+    // Batch-delete selected objects with live progress bar
+    async function bmDeleteSelected() {
         const keys = Array.from(bmSelectedKeys);
         if (!keys.length) return;
-        if (!confirm(`Delete ${keys.length} object(s)?\n\nThis cannot be undone.`)) return;
-        const btn = document.querySelector('#bmBulkBar .btn-danger');
+        if (!confirm(`Delete ${keys.length} selected object(s)?\n\nThis cannot be undone.`)) return;
+
+        const btn = document.getElementById('bmDeleteSelectedBtn');
+        const progressWrap = document.getElementById('bmDeleteProgressWrap');
+        const progressLabel = document.getElementById('bmDeleteProgressLabel');
+        const progressPct = document.getElementById('bmDeleteProgressPct');
+        const progressBar = document.getElementById('bmDeleteProgressBar');
+
         btn.disabled = true;
         btn.textContent = '⏳ Deleting...';
-        fetch('/api/manager/delete-objects', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ ..._bmCreds(), bucket_name: bmCurrentBucket, keys })
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.error) { alert('❌ ' + data.error); btn.disabled = false; btn.textContent = '🗑 Delete Selected'; return; }
-            const errs = data.errors || [];
-            bmSelectedKeys.clear();
-            bmUpdateBulkBar();
-            bmNavigate(bmCurrentBucket, bmCurrentPrefix);
-            if (errs.length) alert(`Deleted ${data.deleted.length} object(s). ${errs.length} error(s):\n${errs.map(e => e.Key + ': ' + e.Message).join('\n')}`);
-        })
-        .catch(e => { alert('❌ ' + e.message); btn.disabled = false; btn.textContent = '🗑 Delete Selected'; });
+        progressWrap.style.display = 'block';
+
+        const BATCH = 100;
+        let deleted = 0;
+        let errorCount = 0;
+
+        for (let i = 0; i < keys.length; i += BATCH) {
+            const batch = keys.slice(i, i + BATCH);
+            const pct = Math.round((i / keys.length) * 100);
+            progressLabel.textContent = `Deleting ${Math.min(i + BATCH, keys.length)} / ${keys.length} objects...`;
+            progressPct.textContent = pct + '%';
+            progressBar.style.width = pct + '%';
+
+            try {
+                const resp = await fetch('/api/manager/delete-objects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ..._bmCreds(), bucket_name: bmCurrentBucket, keys: batch })
+                });
+                const data = await resp.json();
+                if (data.error) { errorCount++; continue; }
+                deleted += (data.deleted || []).length;
+                errorCount += (data.errors || []).length;
+            } catch(e) {
+                errorCount++;
+            }
+        }
+
+        // Final 100%
+        progressBar.style.width = '100%';
+        progressPct.textContent = '100%';
+        progressLabel.textContent = `Done — deleted ${deleted} / ${keys.length} objects`;
+
+        bmSelectedKeys.clear();
+        // Short pause so user sees 100% before refresh
+        await new Promise(r => setTimeout(r, 600));
+        bmUpdateBulkBar();
+        bmNavigate(bmCurrentBucket, bmCurrentPrefix);
+        if (errorCount > 0) alert(`⚠ ${errorCount} object(s) could not be deleted (locked or permission denied).`);
     }
 
     function bmCreateFolder() {
