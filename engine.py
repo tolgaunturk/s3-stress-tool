@@ -193,7 +193,7 @@ class RandomDataStream:
 class S3Worker:
     """Worker thread that executes S3 operations."""
 
-    def __init__(self, s3_client, bucket_name, scenario_config, key_pool, metrics_collector, temp_file_generator=None, locked_key_pool=None):
+    def __init__(self, s3_client, bucket_name, scenario_config, key_pool, metrics_collector, temp_file_generator=None, locked_key_pool=None, key_prefix=''):
         self.s3_client = s3_client
         self.bucket_name = bucket_name
         self.scenario_config = scenario_config
@@ -201,11 +201,12 @@ class S3Worker:
         self.locked_key_pool = locked_key_pool if locked_key_pool is not None else deque()
         self.metrics = metrics_collector
         self.temp_file_generator = temp_file_generator  # Function to get temp files
+        self.key_prefix = key_prefix  # Optional prefix prepended to all generated keys
 
     def _generate_object_key(self):
-        """Generate a random object key."""
+        """Generate a random object key, optionally under key_prefix."""
         suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
-        return f"test-obj-{suffix}"
+        return f"{self.key_prefix}test-obj-{suffix}"
 
     def _upload_to_key_pool(self, key):
         """Add an uploaded key to the pool for subsequent reads/deletes."""
@@ -471,7 +472,7 @@ class TestEngine:
         self._temp_dir = None
         self._temp_file_cache = {}  # Cache of generated temp files
 
-    def start(self, scenario_config, bucket_name, s3_client, custom_overrides=None):
+    def start(self, scenario_config, bucket_name, s3_client, custom_overrides=None, key_prefix=''):
         """Start a test with given scenario."""
         if self._running:
             raise RuntimeError("Test already running")
@@ -525,7 +526,7 @@ class TestEngine:
         # Start main test thread
         self._test_thread = threading.Thread(
             target=self._run_test,
-            args=(config, bucket_name, s3_client, temp_file_generator),
+            args=(config, bucket_name, s3_client, temp_file_generator, key_prefix),
             daemon=True,
         )
         self._test_thread.start()
@@ -541,7 +542,7 @@ class TestEngine:
             time.sleep(1)
             self.metrics.record_timeseries()
 
-    def _run_test(self, scenario_config, bucket_name, s3_client, temp_file_generator=None):
+    def _run_test(self, scenario_config, bucket_name, s3_client, temp_file_generator=None, key_prefix=''):
         """Run the test in a background thread."""
         try:
             concurrent_ops = scenario_config['concurrent_ops']
@@ -577,7 +578,7 @@ class TestEngine:
                             op_type = random.choices(list(operation_mix.keys()), weights=list(operation_mix.values()))[0]
                             if operation_counter < 10:
                                 logger.info(f"DEBUG: Selected operation type: {op_type} (mix: {operation_mix})")
-                            worker = S3Worker(s3_client, bucket_name, scenario_config, self._key_pool, self.metrics, temp_file_generator, self._locked_key_pool)
+                            worker = S3Worker(s3_client, bucket_name, scenario_config, self._key_pool, self.metrics, temp_file_generator, self._locked_key_pool, key_prefix)
                             future = executor.submit(worker.execute_operation, op_type)
                             futures.append(future)
                             operation_counter += 1
@@ -640,7 +641,7 @@ class TestEngine:
                         if self._stop_event.is_set():
                             break
 
-                        worker = S3Worker(s3_client, bucket_name, scenario_config, self._key_pool, self.metrics, temp_file_generator, self._locked_key_pool)
+                        worker = S3Worker(s3_client, bucket_name, scenario_config, self._key_pool, self.metrics, temp_file_generator, self._locked_key_pool, key_prefix)
                         future = executor.submit(worker.execute_operation, op_type)
                         futures.append(future)
 

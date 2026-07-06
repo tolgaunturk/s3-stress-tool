@@ -7,508 +7,496 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
     <style>
+        :root {
+            --bg:     #0f172a;
+            --card:   #1e293b;
+            --brd:    #334155;
+            --txt:    #e2e8f0;
+            --mut:    #94a3b8;
+            --acc:    #6366f1;
+            --acc2:   #3b82f6;
+            --green:  #22c55e;
+            --yellow: #f59e0b;
+            --red:    #ef4444;
+        }
+        * { box-sizing: border-box; }
         body {
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
+            background: var(--bg);
             min-height: 100vh;
-            padding: 20px;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            padding: 24px;
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            color: var(--txt);
         }
-        .container-main {
-            max-width: 1400px;
-            margin: 0 auto;
-        }
-        .header {
-            color: white;
-            text-align: center;
-            margin-bottom: 40px;
-            font-weight: 700;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-        }
-        .header h1 {
-            font-size: 2.5rem;
-            margin: 0 0 10px 0;
-        }
-        .back-link {
-            color: white;
-            text-decoration: none;
-            font-size: 0.9rem;
-            margin-bottom: 20px;
-            display: inline-block;
-        }
-        .back-link:hover {
-            text-decoration: underline;
-        }
-        .card {
-            border: none;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            margin-bottom: 25px;
-            background: white;
-        }
-        .card-header {
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            color: white;
-            border-radius: 10px 10px 0 0;
-            padding: 20px;
-            font-weight: 600;
-            border: none;
-        }
-        .card-body {
-            padding: 25px;
-        }
-        .report-card {
-            background: white;
-            border: 2px solid #e0e0e0;
-            border-radius: 10px;
-            padding: 20px;
-            margin-bottom: 20px;
-            transition: all 0.3s;
-            cursor: pointer;
-        }
-        .report-card:hover {
-            border-color: #1e3c72;
-            box-shadow: 0 4px 15px rgba(30, 60, 114, 0.2);
-            transform: translateY(-2px);
-        }
-        .report-card.expanded {
-            border-color: #1e3c72;
-            background: #f0f6ff;
-        }
-        .report-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 15px;
-        }
-        .report-title {
-            font-size: 1.2rem;
-            font-weight: 600;
-            color: #1e3c72;
-            margin: 0;
-        }
-        .report-badge {
-            display: inline-block;
-            background: #1e3c72;
-            color: white;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 600;
-        }
-        .report-meta {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin: 15px 0;
-        }
-        .meta-item {
-            background: #f8f9fa;
-            padding: 12px;
-            border-radius: 5px;
-            border-left: 4px solid #1e3c72;
-        }
-        .meta-label {
-            font-size: 0.85rem;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 5px;
-        }
-        .meta-value {
-            font-size: 1.3rem;
-            font-weight: 600;
-            color: #1e3c72;
-        }
-        .metrics-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin: 20px 0;
-            padding-top: 20px;
-            border-top: 1px solid #e0e0e0;
-        }
-        .metric-card {
-            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
-            padding: 15px;
-            border-radius: 8px;
-            text-align: center;
-        }
-        .metric-value {
-            font-size: 1.5rem;
-            font-weight: bold;
-            color: #1e3c72;
-            margin: 8px 0;
-        }
-        .metric-label {
-            font-size: 0.8rem;
-            color: #555;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .report-actions {
-            display: flex;
-            gap: 10px;
-            margin-top: 15px;
-            flex-wrap: wrap;
-        }
-        .action-btn {
-            padding: 8px 16px;
-            border-radius: 5px;
-            font-weight: 600;
-            text-decoration: none;
-            border: none;
-            cursor: pointer;
-            transition: all 0.3s;
-            font-size: 0.9rem;
-        }
-        .btn-csv {
-            background: #17a2b8;
-            color: white;
-        }
-        .btn-csv:hover {
-            background: #138496;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(23, 162, 184, 0.3);
-        }
-        .btn-json {
-            background: #28a745;
-            color: white;
-        }
-        .btn-json:hover {
-            background: #218838;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(40, 167, 69, 0.3);
-        }
-        .btn-view {
-            background: #1e3c72;
-            color: white;
-        }
-        .btn-view:hover {
-            background: #152a54;
-        }
-        .empty-state {
-            text-align: center;
-            padding: 60px 20px;
-            color: #999;
-        }
-        .empty-state h3 {
-            color: #666;
-            margin-bottom: 10px;
-        }
-        .filters {
-            display: flex;
-            gap: 15px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            align-items: center;
-        }
-        .filter-input {
-            padding: 8px 15px;
-            border: 1px solid #ddd;
-            border-radius: 5px;
-            font-size: 0.9rem;
-        }
-        .filter-input:focus {
-            border-color: #1e3c72;
-            outline: none;
-            box-shadow: 0 0 0 3px rgba(30, 60, 114, 0.1);
-        }
+        a { color: var(--acc2); text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .container-main { max-width: 1400px; margin: 0 auto; }
+
+        /* Header */
+        .page-header { margin-bottom: 28px; }
+        .page-header h1 { font-size: 1.75rem; font-weight: 700; color: var(--txt); margin: 6px 0 4px; }
+        .page-header p  { color: var(--mut); font-size: 0.9rem; margin: 0; }
+
+        /* Stat boxes */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 30px;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 14px;
+            margin-bottom: 24px;
         }
         .stat-box {
-            background: white;
-            padding: 20px;
+            background: var(--card);
+            border: 1px solid var(--brd);
+            border-top: 3px solid var(--acc);
             border-radius: 10px;
+            padding: 18px 20px;
             text-align: center;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
         }
-        .stat-value {
-            font-size: 2rem;
-            font-weight: bold;
-            color: #1e3c72;
-            margin: 10px 0;
+        .stat-value { font-size: 1.9rem; font-weight: 700; color: var(--txt); margin: 6px 0; }
+        .stat-label { font-size: 0.78rem; color: var(--mut); text-transform: uppercase; letter-spacing: 0.6px; }
+
+        /* Cards */
+        .dk-card { background: var(--card); border: 1px solid var(--brd); border-radius: 10px; margin-bottom: 20px; }
+        .dk-card-header {
+            padding: 16px 22px;
+            font-weight: 600;
+            font-size: 0.95rem;
+            color: var(--txt);
+            border-bottom: 1px solid var(--brd);
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        .stat-label {
-            font-size: 0.9rem;
-            color: #666;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+        .dk-card-body { padding: 20px 22px; }
+
+        /* Charts */
+        .charts-row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+        @media (max-width: 768px) { .charts-row { grid-template-columns: 1fr; } }
+        .chart-wrap { background: var(--bg); border: 1px solid var(--brd); border-radius: 8px; padding: 16px; }
+        .chart-title { font-size: 0.82rem; font-weight: 600; color: var(--mut); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
+
+        /* Filters */
+        .filters { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+        .filter-input {
+            background: var(--bg);
+            border: 1px solid var(--brd);
+            border-radius: 6px;
+            color: var(--txt);
+            padding: 8px 14px;
+            font-size: 0.88rem;
         }
-        .expand-icon {
-            font-size: 1.5rem;
-            color: #999;
+        .filter-input:focus { outline: none; border-color: var(--acc); box-shadow: 0 0 0 3px rgba(99,102,241,0.15); }
+        .filter-input option { background: var(--card); color: var(--txt); }
+
+        /* Report cards */
+        .report-card {
+            background: var(--bg);
+            border: 1px solid var(--brd);
+            border-radius: 10px;
+            padding: 18px 20px;
+            margin-bottom: 14px;
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
         }
+        .report-card:hover { border-color: var(--acc); box-shadow: 0 0 0 1px var(--acc); }
+        .report-card.expanded { border-color: var(--acc); background: #1a2540; }
+        .report-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 14px; }
+        .report-title { font-size: 1.05rem; font-weight: 600; color: var(--txt); margin: 0; }
+        .report-runid { font-size: 0.78rem; color: var(--mut); margin-top: 3px; }
+        .report-badge {
+            background: #1e293b;
+            border: 1px solid var(--brd);
+            color: var(--mut);
+            padding: 4px 11px;
+            border-radius: 20px;
+            font-size: 0.78rem;
+            white-space: nowrap;
+        }
+        .expand-icon { font-size: 1rem; color: var(--mut); margin-top: 6px; text-align: right; }
+
+        /* Meta strip */
+        .report-meta { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; }
+        .meta-item {
+            background: var(--card);
+            border: 1px solid var(--brd);
+            border-left: 3px solid var(--acc);
+            border-radius: 6px;
+            padding: 10px 14px;
+        }
+        .meta-label { font-size: 0.75rem; color: var(--mut); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 3px; }
+        .meta-value { font-size: 1.15rem; font-weight: 600; color: var(--txt); }
+
+        /* Expanded detail grid */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+            gap: 10px;
+            margin: 16px 0;
+            padding-top: 16px;
+            border-top: 1px solid var(--brd);
+        }
+        .metric-card {
+            background: var(--card);
+            border: 1px solid var(--brd);
+            border-radius: 8px;
+            padding: 12px;
+            text-align: center;
+        }
+        .metric-value { font-size: 1.35rem; font-weight: 700; color: var(--acc2); margin: 6px 0 2px; }
+        .metric-label { font-size: 0.72rem; color: var(--mut); text-transform: uppercase; letter-spacing: 0.4px; }
+
+        /* Latency chart inside expanded */
+        .latency-chart-wrap {
+            background: var(--card);
+            border: 1px solid var(--brd);
+            border-radius: 8px;
+            padding: 16px;
+            margin: 16px 0 8px;
+        }
+
+        /* Action buttons */
+        .report-actions { display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap; }
+        .action-btn {
+            padding: 7px 15px;
+            border-radius: 6px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            border: none;
+            cursor: pointer;
+            transition: opacity 0.2s, transform 0.1s;
+        }
+        .action-btn:hover { opacity: 0.85; transform: translateY(-1px); }
+        .btn-csv  { background: #0891b2; color: #fff; }
+        .btn-json { background: #059669; color: #fff; }
+        .btn-clear { background: var(--brd); color: var(--txt); }
+
+        .empty-state { text-align: center; padding: 56px 20px; color: var(--mut); }
+        .empty-state h3 { color: var(--txt); margin-bottom: 8px; }
     </style>
 </head>
 <body>
-    <div class="container-main">
-        <a href="/" class="back-link">← Back to Dashboard</a>
+<div class="container-main">
 
-        <div class="header">
-            <h1>📊 Test Reports</h1>
-            <p style="margin-bottom: 0; font-size: 0.9rem; opacity: 0.9;">View all your test runs and download results</p>
+    <div class="page-header">
+        <a href="/">← Back to Dashboard</a>
+        <h1>📊 Test Reports</h1>
+        <p>View all test runs, compare performance, and download results</p>
+    </div>
+
+    <!-- Summary Stats -->
+    <div class="stats-grid" id="statsGrid">
+        <div class="stat-box">
+            <div class="stat-label">Total Tests</div>
+            <div class="stat-value" id="statTotalTests">—</div>
         </div>
-
-        <!-- Summary Statistics -->
-        <div class="stats-grid" id="statsGrid">
-            <div class="stat-box">
-                <div class="stat-label">Total Tests</div>
-                <div class="stat-value" id="statTotalTests">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Avg IOPS</div>
-                <div class="stat-value" id="statAvgIOPS">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Avg Throughput</div>
-                <div class="stat-value" id="statAvgThroughput">0</div>
-            </div>
-            <div class="stat-box">
-                <div class="stat-label">Avg Success Rate</div>
-                <div class="stat-value" id="statAvgSuccess">0%</div>
-            </div>
+        <div class="stat-box" style="border-top-color:#3b82f6;">
+            <div class="stat-label">Avg IOPS</div>
+            <div class="stat-value" id="statAvgIOPS">—</div>
         </div>
+        <div class="stat-box" style="border-top-color:#22c55e;">
+            <div class="stat-label">Avg Throughput</div>
+            <div class="stat-value" id="statAvgThroughput">—</div>
+        </div>
+        <div class="stat-box" style="border-top-color:#f59e0b;">
+            <div class="stat-label">Avg Success Rate</div>
+            <div class="stat-value" id="statAvgSuccess">—</div>
+        </div>
+    </div>
 
-        <!-- Filters -->
-        <div class="card">
-            <div class="card-header">Filters & Search</div>
-            <div class="card-body">
-                <div class="filters">
-                    <input type="text" class="filter-input" id="searchInput" placeholder="🔍 Search by scenario or run ID..." onkeyup="filterReports()">
-                    <select class="filter-input" id="scenarioFilter" onchange="filterReports()">
-                        <option value="">All Scenarios</option>
-                    </select>
-                    <button class="action-btn btn-view" onclick="clearFilters()">Clear Filters</button>
+    <!-- Performance Trends Charts -->
+    <div class="dk-card" id="chartsCard" style="display:none;">
+        <div class="dk-card-header">📈 Performance Trends (last 15 runs)</div>
+        <div class="dk-card-body">
+            <div class="charts-row">
+                <div class="chart-wrap">
+                    <div class="chart-title">IOPS per Test Run</div>
+                    <div style="position:relative;height:170px;"><canvas id="iopsChart"></canvas></div>
+                </div>
+                <div class="chart-wrap">
+                    <div class="chart-title">Throughput (MB/s) per Test Run</div>
+                    <div style="position:relative;height:170px;"><canvas id="throughputChart"></canvas></div>
                 </div>
             </div>
-        </div>
-
-        <!-- Reports List -->
-        <div class="card">
-            <div class="card-header">All Test Reports</div>
-            <div class="card-body">
-                <div id="reportsContainer">
-                    <div class="empty-state">
-                        <h3>📋 No reports yet</h3>
-                        <p>Run a test on the dashboard to see results here!</p>
-                    </div>
+            <div class="charts-row" style="margin-top:16px;">
+                <div class="chart-wrap">
+                    <div class="chart-title">Avg Latency (ms) per Test Run</div>
+                    <div style="position:relative;height:170px;"><canvas id="latencyChart"></canvas></div>
+                </div>
+                <div class="chart-wrap">
+                    <div class="chart-title">Success Rate (%) per Test Run</div>
+                    <div style="position:relative;height:170px;"><canvas id="successChart"></canvas></div>
                 </div>
             </div>
         </div>
     </div>
 
-    <script>
-        let allReports = [];
+    <!-- Filters -->
+    <div class="dk-card">
+        <div class="dk-card-header">🔎 Filters</div>
+        <div class="dk-card-body">
+            <div class="filters">
+                <input type="text" class="filter-input" id="searchInput" placeholder="Search by scenario or run ID…" onkeyup="filterReports()" style="flex:1;min-width:200px;">
+                <select class="filter-input" id="scenarioFilter" onchange="filterReports()">
+                    <option value="">All Scenarios</option>
+                </select>
+                <button class="action-btn btn-clear" onclick="clearFilters()">✕ Clear</button>
+            </div>
+        </div>
+    </div>
 
-        // Load reports on page load
-        document.addEventListener('DOMContentLoaded', function() {
-            loadReports();
-        });
+    <!-- Reports List -->
+    <div class="dk-card">
+        <div class="dk-card-header">📋 All Test Reports <span id="reportCount" style="color:var(--mut);font-weight:400;font-size:0.85rem;margin-left:8px;"></span></div>
+        <div class="dk-card-body">
+            <div id="reportsContainer">
+                <div class="empty-state">
+                    <h3>📋 Loading…</h3>
+                </div>
+            </div>
+        </div>
+    </div>
 
-        async function loadReports() {
-            try {
-                const response = await fetch('/api/reports');
-                const data = await response.json();
-                allReports = data.reports || [];
+</div>
 
-                if (allReports.length === 0) {
-                    document.getElementById('reportsContainer').innerHTML = `
-                        <div class="empty-state">
-                            <h3>📋 No reports yet</h3>
-                            <p>Run a test on the dashboard to see results here!</p>
-                        </div>
-                    `;
-                    updateStats([]);
-                    return;
-                }
+<script>
+    let allReports = [];
+    const trendCharts = {};
 
-                // Sort by date (newest first)
-                allReports.sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
+    const CHART_DEFAULTS = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: {
+            x: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#1e293b' } },
+            y: { ticks: { color: '#94a3b8', font: { size: 10 } }, grid: { color: '#1e293b' } },
+        },
+    };
 
-                renderReports(allReports);
-                populateScenarioFilter();
-                updateStats(allReports);
-            } catch (error) {
-                console.error('Error loading reports:', error);
-            }
-        }
+    document.addEventListener('DOMContentLoaded', loadReports);
 
-        function renderReports(reports) {
-            const container = document.getElementById('reportsContainer');
+    async function loadReports() {
+        try {
+            const data = await fetch('/api/reports').then(r => r.json());
+            allReports = (data.reports || []).sort((a, b) => new Date(b.timestamp || 0) - new Date(a.timestamp || 0));
 
-            if (reports.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <h3>🔍 No reports found</h3>
-                        <p>Try adjusting your filters</p>
-                    </div>
-                `;
+            if (allReports.length === 0) {
+                document.getElementById('reportsContainer').innerHTML =
+                    '<div class="empty-state"><h3>📋 No reports yet</h3><p>Run a test on the dashboard to see results here!</p></div>';
+                updateStats([]);
                 return;
             }
 
-            container.innerHTML = reports.map(report => `
-                <div class="report-card" onclick="toggleExpand(this)">
-                    <div class="report-header">
-                        <div>
-                            <h3 class="report-title">${report.scenario}</h3>
-                            <small class="text-muted" style="display: block; margin-top: 5px;">
-                                Run ID: ${report.run_id}
-                            </small>
-                        </div>
-                        <div style="text-align: right;">
-                            <span class="report-badge">${formatDate(report.timestamp)}</span>
-                            <div style="margin-top: 10px; font-size: 1.5rem;" class="expand-icon">▼</div>
-                        </div>
+            renderReports(allReports);
+            populateScenarioFilter();
+            updateStats(allReports);
+            renderTrendCharts(allReports);
+            document.getElementById('chartsCard').style.display = '';
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    // ── Trend Charts ─────────────────────────────────────────────────────────
+    function renderTrendCharts(reports) {
+        const slice = reports.slice(0, 15).reverse(); // oldest→newest left→right
+        const labels = slice.map(r => shortLabel(r));
+
+        const mkChart = (id, data, color, unit) => {
+            const ctx = document.getElementById(id).getContext('2d');
+            if (trendCharts[id]) trendCharts[id].destroy();
+            trendCharts[id] = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels,
+                    datasets: [{
+                        data,
+                        backgroundColor: color + '99',
+                        borderColor: color,
+                        borderWidth: 1.5,
+                        borderRadius: 4,
+                    }]
+                },
+                options: {
+                    ...CHART_DEFAULTS,
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            callbacks: { label: ctx => `${ctx.parsed.y?.toFixed(2)} ${unit}` }
+                        }
+                    },
+                }
+            });
+        };
+
+        mkChart('iopsChart',       slice.map(r => r.iops || 0),          '#6366f1', 'IOPS');
+        mkChart('throughputChart', slice.map(r => r.throughput_mbs || 0),'#3b82f6', 'MB/s');
+        mkChart('latencyChart',    slice.map(r => r.latency_avg || 0),   '#f59e0b', 'ms');
+        mkChart('successChart',    slice.map(r => r.success_rate || 0),  '#22c55e', '%');
+    }
+
+    function shortLabel(r) {
+        const sc = (r.scenario || '').replace(/_/g,' ').split(' ').map(w => w[0]?.toUpperCase()).join('');
+        const d  = r.timestamp ? new Date(r.timestamp).toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit'}) : '';
+        return `${sc} ${d}`;
+    }
+
+    // ── Report List ───────────────────────────────────────────────────────────
+    function renderReports(reports) {
+        const container = document.getElementById('reportsContainer');
+        document.getElementById('reportCount').textContent = `(${reports.length})`;
+
+        if (!reports.length) {
+            container.innerHTML = '<div class="empty-state"><h3>🔍 No reports found</h3><p>Try adjusting your filters</p></div>';
+            return;
+        }
+
+        container.innerHTML = reports.map((report, idx) => {
+            const srColor = (report.success_rate >= 95) ? 'var(--green)' : (report.success_rate >= 80) ? 'var(--yellow)' : 'var(--red)';
+            return `
+            <div class="report-card" onclick="toggleExpand(this, '${report.run_id}', ${idx})">
+                <div class="report-header">
+                    <div>
+                        <div class="report-title">${report.scenario || '—'}</div>
+                        <div class="report-runid">Run ID: ${report.run_id}</div>
                     </div>
-
-                    <!-- Summary Row -->
-                    <div class="report-meta">
-                        <div class="meta-item">
-                            <div class="meta-label">IOPS</div>
-                            <div class="meta-value">${report.iops?.toFixed(2) || 'N/A'}</div>
-                        </div>
-                        <div class="meta-item">
-                            <div class="meta-label">Throughput</div>
-                            <div class="meta-value">${report.throughput_mbs?.toFixed(2) || 'N/A'} MB/s</div>
-                        </div>
-                        <div class="meta-item">
-                            <div class="meta-label">Success Rate</div>
-                            <div class="meta-value" style="color: ${report.success_rate >= 95 ? '#28a745' : report.success_rate >= 80 ? '#ffc107' : '#dc3545'};">
-                                ${report.success_rate?.toFixed(1) || 'N/A'}%
-                            </div>
-                        </div>
-                        <div class="meta-item">
-                            <div class="meta-label">Latency</div>
-                            <div class="meta-value">${report.latency_avg?.toFixed(2) || 'N/A'} ms</div>
-                        </div>
-                    </div>
-
-                    <!-- Detailed Metrics (hidden by default) -->
-                    <div style="display: none;" class="expanded-details">
-                        <div class="metrics-grid">
-                            <div class="metric-card">
-                                <div class="metric-label">Avg Latency</div>
-                                <div class="metric-value">${report.latency_avg?.toFixed(2) || 'N/A'}</div>
-                                <div class="metric-label">ms</div>
-                            </div>
-                            <div class="metric-card">
-                                <div class="metric-label">P50 Latency</div>
-                                <div class="metric-value">${report.latency_p50?.toFixed(2) || 'N/A'}</div>
-                                <div class="metric-label">ms</div>
-                            </div>
-                            <div class="metric-card">
-                                <div class="metric-label">P99 Latency</div>
-                                <div class="metric-value">${report.latency_p99?.toFixed(2) || 'N/A'}</div>
-                                <div class="metric-label">ms</div>
-                            </div>
-                            <div class="metric-card">
-                                <div class="metric-label">Total Operations</div>
-                                <div class="metric-value">${report.total_ops || 'N/A'}</div>
-                            </div>
-                            <div class="metric-card">
-                                <div class="metric-label">Data Transferred</div>
-                                <div class="metric-value">${report.data_transferred_mb?.toFixed(2) || 'N/A'}</div>
-                                <div class="metric-label">MB</div>
-                            </div>
-                            <div class="metric-card">
-                                <div class="metric-label">Duration</div>
-                                <div class="metric-value">${report.duration || 'N/A'}</div>
-                                <div class="metric-label">sec</div>
-                            </div>
-                        </div>
-
-                        <!-- Download Buttons -->
-                        <div class="report-actions">
-                            <button class="action-btn btn-csv" onclick="exportReport('${report.run_id}', 'csv'); event.stopPropagation();">
-                                📥 Download CSV
-                            </button>
-                            <button class="action-btn btn-json" onclick="exportReport('${report.run_id}', 'json'); event.stopPropagation();">
-                                📥 Download JSON
-                            </button>
-                        </div>
+                    <div style="text-align:right;">
+                        <span class="report-badge">${formatDate(report.timestamp)}</span>
+                        <div class="expand-icon" id="icon_${report.run_id}">▼</div>
                     </div>
                 </div>
-            `).join('');
+                <div class="report-meta">
+                    <div class="meta-item"><div class="meta-label">IOPS</div><div class="meta-value">${report.iops?.toFixed(2) ?? 'N/A'}</div></div>
+                    <div class="meta-item" style="border-left-color:#3b82f6;"><div class="meta-label">Throughput</div><div class="meta-value">${report.throughput_mbs?.toFixed(2) ?? 'N/A'} MB/s</div></div>
+                    <div class="meta-item" style="border-left-color:${srColor};"><div class="meta-label">Success Rate</div><div class="meta-value" style="color:${srColor};">${report.success_rate?.toFixed(1) ?? 'N/A'}%</div></div>
+                    <div class="meta-item" style="border-left-color:#f59e0b;"><div class="meta-label">Avg Latency</div><div class="meta-value">${report.latency_avg?.toFixed(2) ?? 'N/A'} ms</div></div>
+                </div>
+
+                <div class="expanded-details" style="display:none;">
+                    <div class="metrics-grid">
+                        <div class="metric-card"><div class="metric-label">Avg Latency</div><div class="metric-value">${report.latency_avg?.toFixed(2) ?? 'N/A'}</div><div class="metric-label">ms</div></div>
+                        <div class="metric-card"><div class="metric-label">P50 Latency</div><div class="metric-value">${report.latency_p50?.toFixed(2) ?? 'N/A'}</div><div class="metric-label">ms</div></div>
+                        <div class="metric-card"><div class="metric-label">P99 Latency</div><div class="metric-value">${report.latency_p99?.toFixed(2) ?? 'N/A'}</div><div class="metric-label">ms</div></div>
+                        <div class="metric-card"><div class="metric-label">Total Ops</div><div class="metric-value">${report.total_ops ?? 'N/A'}</div></div>
+                        <div class="metric-card"><div class="metric-label">Data Transferred</div><div class="metric-value">${report.data_transferred_mb?.toFixed(2) ?? 'N/A'}</div><div class="metric-label">MB</div></div>
+                        <div class="metric-card"><div class="metric-label">Duration</div><div class="metric-value">${report.duration ?? 'N/A'}</div><div class="metric-label">sec</div></div>
+                    </div>
+
+                    <!-- Latency breakdown chart -->
+                    <div class="latency-chart-wrap" id="lc_wrap_${report.run_id}">
+                        <div class="chart-title">Latency Breakdown</div>
+                        <div style="position:relative;height:80px;"><canvas id="lc_${report.run_id}"></canvas></div>
+                    </div>
+
+                    <div class="report-actions">
+                        <button class="action-btn btn-csv"  onclick="exportReport('${report.run_id}','csv');  event.stopPropagation();">📥 CSV</button>
+                        <button class="action-btn btn-json" onclick="exportReport('${report.run_id}','json'); event.stopPropagation();">📥 JSON</button>
+                    </div>
+                </div>
+            </div>`;
+        }).join('');
+    }
+
+    const expandedCharts = {};
+
+    function toggleExpand(el, runId, idx) {
+        el.classList.toggle('expanded');
+        const details = el.querySelector('.expanded-details');
+        const icon    = document.getElementById('icon_' + runId);
+        const open    = details.style.display === 'none';
+        details.style.display = open ? 'block' : 'none';
+        if (icon) icon.textContent = open ? '▲' : '▼';
+
+        if (open && !expandedCharts[runId]) {
+            const report = allReports.find(r => r.run_id === runId);
+            if (report) renderLatencyChart(runId, report);
         }
+    }
 
-        function toggleExpand(element) {
-            element.classList.toggle('expanded');
-            const details = element.querySelector('.expanded-details');
-            if (details) {
-                details.style.display = details.style.display === 'none' ? 'block' : 'none';
-            }
+    function renderLatencyChart(runId, report) {
+        const avg = report.latency_avg || 0;
+        const p50 = report.latency_p50 || 0;
+        const p99 = report.latency_p99 || 0;
+        if (!avg && !p50 && !p99) {
+            document.getElementById('lc_wrap_' + runId).style.display = 'none';
+            return;
         }
-
-        function populateScenarioFilter() {
-            const scenarios = [...new Set(allReports.map(r => r.scenario))].sort();
-            const select = document.getElementById('scenarioFilter');
-            const currentValue = select.value;
-
-            scenarios.forEach(scenario => {
-                if (!select.querySelector(`option[value="${scenario}"]`)) {
-                    const option = document.createElement('option');
-                    option.value = scenario;
-                    option.textContent = scenario;
-                    select.appendChild(option);
+        const ctx = document.getElementById('lc_' + runId).getContext('2d');
+        expandedCharts[runId] = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: ['Avg', 'P50 (Median)', 'P99'],
+                datasets: [{
+                    data: [avg, p50, p99],
+                    backgroundColor: ['#6366f199','#3b82f699','#ef444499'],
+                    borderColor:     ['#6366f1',  '#3b82f6',  '#ef4444'],
+                    borderWidth: 1.5,
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: { callbacks: { label: c => `${c.parsed.x?.toFixed(2)} ms` } }
+                },
+                scales: {
+                    x: { ticks: { color:'#94a3b8', font:{size:10} }, grid: { color:'#0f172a' } },
+                    y: { ticks: { color:'#94a3b8', font:{size:11} }, grid: { display: false } },
                 }
-            });
-
-            select.value = currentValue;
-        }
-
-        function filterReports() {
-            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
-            const scenarioFilter = document.getElementById('scenarioFilter').value;
-
-            const filtered = allReports.filter(report => {
-                const matchesSearch = !searchTerm ||
-                    report.scenario.toLowerCase().includes(searchTerm) ||
-                    report.run_id.toLowerCase().includes(searchTerm);
-                const matchesScenario = !scenarioFilter || report.scenario === scenarioFilter;
-                return matchesSearch && matchesScenario;
-            });
-
-            renderReports(filtered);
-        }
-
-        function clearFilters() {
-            document.getElementById('searchInput').value = '';
-            document.getElementById('scenarioFilter').value = '';
-            renderReports(allReports);
-        }
-
-        function updateStats(reports) {
-            if (reports.length === 0) {
-                document.getElementById('statTotalTests').textContent = '0';
-                document.getElementById('statAvgIOPS').textContent = '0';
-                document.getElementById('statAvgThroughput').textContent = '0';
-                document.getElementById('statAvgSuccess').textContent = '0%';
-                return;
             }
+        });
+    }
 
-            const avgIops = reports.reduce((sum, r) => sum + (r.iops || 0), 0) / reports.length;
-            const avgThroughput = reports.reduce((sum, r) => sum + (r.throughput_mbs || 0), 0) / reports.length;
-            const avgSuccess = reports.reduce((sum, r) => sum + (r.success_rate || 0), 0) / reports.length;
+    // ── Filters & Stats ───────────────────────────────────────────────────────
+    function populateScenarioFilter() {
+        const scenarios = [...new Set(allReports.map(r => r.scenario))].sort();
+        const sel = document.getElementById('scenarioFilter');
+        scenarios.forEach(sc => {
+            if (!sel.querySelector(`option[value="${sc}"]`)) {
+                const o = document.createElement('option');
+                o.value = o.textContent = sc;
+                sel.appendChild(o);
+            }
+        });
+    }
 
-            document.getElementById('statTotalTests').textContent = reports.length;
-            document.getElementById('statAvgIOPS').textContent = avgIops.toFixed(2);
-            document.getElementById('statAvgThroughput').textContent = avgThroughput.toFixed(2);
-            document.getElementById('statAvgSuccess').textContent = avgSuccess.toFixed(1) + '%';
+    function filterReports() {
+        const s  = document.getElementById('searchInput').value.toLowerCase();
+        const sc = document.getElementById('scenarioFilter').value;
+        renderReports(allReports.filter(r =>
+            (!s  || r.scenario.toLowerCase().includes(s) || r.run_id.toLowerCase().includes(s)) &&
+            (!sc || r.scenario === sc)
+        ));
+    }
+
+    function clearFilters() {
+        document.getElementById('searchInput').value = '';
+        document.getElementById('scenarioFilter').value = '';
+        renderReports(allReports);
+    }
+
+    function updateStats(reports) {
+        if (!reports.length) {
+            ['statTotalTests','statAvgIOPS','statAvgThroughput','statAvgSuccess'].forEach(id =>
+                document.getElementById(id).textContent = '0');
+            return;
         }
+        const n = reports.length;
+        document.getElementById('statTotalTests').textContent   = n;
+        document.getElementById('statAvgIOPS').textContent      = (reports.reduce((s,r) => s+(r.iops||0), 0)/n).toFixed(1);
+        document.getElementById('statAvgThroughput').textContent= (reports.reduce((s,r) => s+(r.throughput_mbs||0),0)/n).toFixed(2) + ' MB/s';
+        document.getElementById('statAvgSuccess').textContent   = (reports.reduce((s,r) => s+(r.success_rate||0),0)/n).toFixed(1) + '%';
+    }
 
-        function exportReport(runId, format) {
-            window.location.href = `/api/reports/${runId}/export?format=${format}`;
-        }
+    function exportReport(runId, format) {
+        window.location.href = `/api/reports/${runId}/export?format=${format}`;
+    }
 
-        function formatDate(timestamp) {
-            if (!timestamp) return 'Unknown';
-            const date = new Date(timestamp);
-            return date.toLocaleDateString() + ' ' + date.toLocaleTimeString();
-        }
-    </script>
+    function formatDate(ts) {
+        if (!ts) return 'Unknown';
+        return new Date(ts).toLocaleString();
+    }
+</script>
 </body>
 </html>

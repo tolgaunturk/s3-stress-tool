@@ -12,7 +12,7 @@ import json
 import uuid
 from pathlib import Path
 from io import StringIO, BytesIO
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from config import (
     DEBUG, HOST, PORT, LOG_LEVEL, LOG_FILE, REPORTS_DIR,
@@ -94,10 +94,12 @@ def create_s3_client(endpoint_url, access_key, secret_key, region='default'):
     """Create S3 client for AWS S3 or any S3-compatible endpoint (Ceph, MinIO, etc.).
     Leave endpoint_url blank/None to connect to native AWS S3.
     """
+    from botocore.config import Config
     kwargs = {
         'aws_access_key_id': access_key,
         'aws_secret_access_key': secret_key,
         'region_name': region if region not in ('default', '', None) else 'us-east-1',
+        'config': Config(connect_timeout=10, read_timeout=30, retries={'max_attempts': 1}),
     }
     if endpoint_url and endpoint_url.strip():
         kwargs['endpoint_url'] = endpoint_url.strip()
@@ -526,6 +528,180 @@ def policy_probe():
             except Exception:
                 pass
 
+        # --- Write / Control-Plane operations (commonly restricted by providers) ---
+        import uuid as _uuid
+
+        # CreateBucket: use a short-lived probe bucket name
+        _probe_bucket = f'probe-{_uuid.uuid4().hex[:10]}'
+        _probe_bucket_created = False
+        try:
+            _cb_kwargs = {'Bucket': _probe_bucket}
+            if region and region not in ('default', 'us-east-1', ''):
+                _cb_kwargs['CreateBucketConfiguration'] = {'LocationConstraint': region}
+            s3.create_bucket(**_cb_kwargs)
+            results['s3:CreateBucket'] = {'status': 'ALLOWED', 'detail': f'Created probe bucket ({_probe_bucket})'}
+            _probe_bucket_created = True
+        except ClientError as e:
+            _code = e.response['Error']['Code']
+            _msg = e.response['Error'].get('Message', '')
+            if _code in DENIED_CODES or 'AccessDenied' in _msg:
+                results['s3:CreateBucket'] = {'status': 'DENIED', 'detail': _code}
+            else:
+                results['s3:CreateBucket'] = {'status': 'ERROR', 'detail': _code}
+        except Exception as e:
+            results['s3:CreateBucket'] = {'status': 'ERROR', 'detail': str(e)[:80]}
+
+        # DeleteBucket: delete the probe bucket created above
+        if _probe_bucket_created:
+            try:
+                s3.delete_bucket(Bucket=_probe_bucket)
+                results['s3:DeleteBucket'] = {'status': 'ALLOWED', 'detail': f'Deleted probe bucket ({_probe_bucket})'}
+            except ClientError as e:
+                _code = e.response['Error']['Code']
+                _msg = e.response['Error'].get('Message', '')
+                if _code in DENIED_CODES or 'AccessDenied' in _msg:
+                    results['s3:DeleteBucket'] = {'status': 'DENIED', 'detail': _code + ' (probe bucket left behind — delete manually)'}
+                else:
+                    results['s3:DeleteBucket'] = {'status': 'ERROR', 'detail': _code}
+            except Exception as e:
+                results['s3:DeleteBucket'] = {'status': 'ERROR', 'detail': str(e)[:80]}
+        else:
+            results['s3:DeleteBucket'] = {'status': 'SKIPPED', 'detail': 'Skipped — CreateBucket was not ALLOWED'}
+
+        # PutBucketAcl: set to 'private' (same as default — no-op, safe)
+        probe('s3:PutBucketAcl', lambda: s3.put_bucket_acl(Bucket=bucket_name, ACL='private'))
+
+        # PutBucketVersioning: re-set current status if already set;
+        # if never enabled, use Suspended (only way to test — side effect: leaves bucket in Suspended state)
+        _vd = results.get('s3:GetBucketVersioning', {}).get('detail', '')
+        if 'Enabled' in _vd:
+            probe('s3:PutBucketVersioning', lambda: s3.put_bucket_versioning(
+                Bucket=bucket_name, VersioningConfiguration={'Status': 'Enabled'}))
+        elif 'Suspended' in _vd:
+            probe('s3:PutBucketVersioning', lambda: s3.put_bucket_versioning(
+                Bucket=bucket_name, VersioningConfiguration={'Status': 'Suspended'}))
+        else:
+            # Never enabled — try Suspended (will deny immediately if no permission; if allowed,
+            # leaves bucket in Suspended state which is the lowest-impact versioning state)
+            try:
+                s3.put_bucket_versioning(Bucket=bucket_name,
+                                         VersioningConfiguration={'Status': 'Suspended'})
+                results['s3:PutBucketVersioning'] = {'status': 'ALLOWED', 'detail': 'Versioning set to Suspended on probe bucket'}
+            except ClientError as e:
+                _code = e.response['Error']['Code']
+                _msg = e.response['Error'].get('Message', '')
+                if _code in DENIED_CODES or 'AccessDenied' in _msg:
+                    results['s3:PutBucketVersioning'] = {'status': 'DENIED', 'detail': _code}
+                else:
+                    results['s3:PutBucketVersioning'] = {'status': 'ERROR', 'detail': _code}
+            except Exception as e:
+                results['s3:PutBucketVersioning'] = {'status': 'ERROR', 'detail': str(e)[:80]}
+
+        # PutBucketObjectLockConfiguration: non-lock buckets return InvalidBucketState (ALLOWED but not configured)
+        _LOCK_CFG_CODES = {'InvalidBucketState', 'InvalidRequest', 'OperationNotSupported',
+                           'ObjectLockConfigurationNotSupportedError'}
+        try:
+            s3.put_object_lock_configuration(
+                Bucket=bucket_name,
+                ObjectLockConfiguration={'ObjectLockEnabled': 'Enabled'})
+            results['s3:PutBucketObjectLockConfiguration'] = {'status': 'ALLOWED', 'detail': 'Object Lock enabled/re-confirmed'}
+        except ClientError as e:
+            _code = e.response['Error']['Code']
+            _msg = e.response['Error'].get('Message', '')
+            if _code in DENIED_CODES or 'AccessDenied' in _msg:
+                results['s3:PutBucketObjectLockConfiguration'] = {'status': 'DENIED', 'detail': _code}
+            elif _code in _LOCK_CFG_CODES or 'not supported' in _msg.lower():
+                results['s3:PutBucketObjectLockConfiguration'] = {'status': 'ALLOWED', 'detail': f'Can configure (bucket needs lock at creation: {_code})'}
+            else:
+                results['s3:PutBucketObjectLockConfiguration'] = {'status': 'ERROR', 'detail': _code}
+        except Exception as e:
+            results['s3:PutBucketObjectLockConfiguration'] = {'status': 'ERROR', 'detail': str(e)[:80]}
+
+        # PutObjectRetention / PutObjectLegalHold: need a temporary probe object
+        _WRITE_KEY = '__policy_write_probe__'
+        _write_ok = False
+        try:
+            s3.put_object(Bucket=bucket_name, Key=_WRITE_KEY, Body=b'x')
+            _write_ok = True
+        except Exception:
+            pass
+
+        if _write_ok:
+            # PutObjectRetention: use a past date → returns InvalidArgument if permission ALLOWED
+            # (date must be in the future — but the AccessDenied check fires before date validation)
+            _RETEN_OK_CODES = {'InvalidArgument', 'InvalidRequest', 'ObjectLockConfigurationNotFoundError',
+                               'InvalidObjectState', 'NoSuchObjectLockConfiguration'}
+            try:
+                _past = datetime.now(timezone.utc) - timedelta(days=1)
+                s3.put_object_retention(Bucket=bucket_name, Key=_WRITE_KEY,
+                                        Retention={'Mode': 'GOVERNANCE', 'RetainUntilDate': _past})
+                results['s3:PutObjectRetention'] = {'status': 'ALLOWED', 'detail': 'Can set retention'}
+            except ClientError as e:
+                _code = e.response['Error']['Code']
+                _msg = e.response['Error'].get('Message', '')
+                if _code in DENIED_CODES or 'AccessDenied' in _msg:
+                    results['s3:PutObjectRetention'] = {'status': 'DENIED', 'detail': _code}
+                elif _code in _RETEN_OK_CODES:
+                    results['s3:PutObjectRetention'] = {'status': 'ALLOWED', 'detail': f'Can set retention (bucket not lock-enabled: {_code})'}
+                else:
+                    results['s3:PutObjectRetention'] = {'status': 'ERROR', 'detail': _code}
+            except Exception as e:
+                results['s3:PutObjectRetention'] = {'status': 'ERROR', 'detail': str(e)[:80]}
+
+            # PutObjectLegalHold: set to OFF (no-op, safe — OFF on a non-held object does nothing)
+            try:
+                s3.put_object_legal_hold(Bucket=bucket_name, Key=_WRITE_KEY,
+                                         LegalHold={'Status': 'OFF'})
+                results['s3:PutObjectLegalHold'] = {'status': 'ALLOWED', 'detail': 'Can set legal hold'}
+            except ClientError as e:
+                _code = e.response['Error']['Code']
+                _msg = e.response['Error'].get('Message', '')
+                if _code in DENIED_CODES or 'AccessDenied' in _msg:
+                    results['s3:PutObjectLegalHold'] = {'status': 'DENIED', 'detail': _code}
+                elif _code in ('InvalidArgument', 'InvalidRequest', 'ObjectLockConfigurationNotFoundError'):
+                    results['s3:PutObjectLegalHold'] = {'status': 'ALLOWED', 'detail': f'Can set legal hold (bucket not lock-enabled: {_code})'}
+                else:
+                    results['s3:PutObjectLegalHold'] = {'status': 'ERROR', 'detail': _code}
+            except Exception as e:
+                results['s3:PutObjectLegalHold'] = {'status': 'ERROR', 'detail': str(e)[:80]}
+
+            # BypassGovernanceRetention: test only if PutObjectRetention was ALLOWED
+            # (requires a live GOVERNANCE-locked object to probe)
+            if results.get('s3:PutObjectRetention', {}).get('status') == 'ALLOWED':
+                _bypass_key = '__policy_bypass_probe__'
+                try:
+                    s3.put_object(Bucket=bucket_name, Key=_bypass_key, Body=b'x')
+                    _future = datetime.now(timezone.utc) + timedelta(seconds=30)
+                    s3.put_object_retention(Bucket=bucket_name, Key=_bypass_key,
+                                            Retention={'Mode': 'GOVERNANCE', 'RetainUntilDate': _future})
+                    # Now attempt deletion with bypass — this is the actual permission check
+                    s3.delete_object(Bucket=bucket_name, Key=_bypass_key,
+                                     BypassGovernanceRetention=True)
+                    results['s3:BypassGovernanceRetention'] = {'status': 'ALLOWED', 'detail': 'Can bypass GOVERNANCE retention on delete'}
+                except ClientError as e:
+                    _code = e.response['Error']['Code']
+                    _msg = e.response['Error'].get('Message', '')
+                    if _code in DENIED_CODES or 'AccessDenied' in _msg:
+                        results['s3:BypassGovernanceRetention'] = {'status': 'DENIED', 'detail': _code}
+                    else:
+                        results['s3:BypassGovernanceRetention'] = {'status': 'ERROR', 'detail': _code}
+                    try:
+                        s3.delete_object(Bucket=bucket_name, Key=_bypass_key)
+                    except Exception:
+                        pass
+                except Exception as e:
+                    results['s3:BypassGovernanceRetention'] = {'status': 'ERROR', 'detail': str(e)[:80]}
+            else:
+                results['s3:BypassGovernanceRetention'] = {'status': 'SKIPPED', 'detail': 'Skipped — requires PutObjectRetention to be ALLOWED first'}
+
+            try:
+                s3.delete_object(Bucket=bucket_name, Key=_WRITE_KEY)
+            except Exception:
+                pass
+        else:
+            for _op in ('s3:PutObjectRetention', 's3:PutObjectLegalHold', 's3:BypassGovernanceRetention'):
+                results[_op] = {'status': 'SKIPPED', 'detail': 'Skipped — write probe object could not be created'}
+
         logger.info(f"Policy probe on bucket '{bucket_name}': {json.dumps({k: v['status'] for k, v in results.items()})}")
         return jsonify({'results': results, 'bucket': bucket_name, 'endpoint': endpoint_url or 'AWS S3'})
 
@@ -689,13 +865,22 @@ def start_test():
     try:
         data = request.json
         scenario_key = data.get('scenario')
-        bucket_name = data.get('bucket_name')
+        bucket_name = data.get('bucket_name', '') or ''
         endpoint_url = data.get('endpoint_url')
         access_key = data.get('access_key')
         secret_key = data.get('secret_key')
         region = data.get('region', 'default')
         duration = data.get('duration', 300)  # Duration in seconds, default 5 min
         custom_overrides = data.get('custom', {})
+
+        # Allow "bucket/prefix" shorthand — split into bucket name and key prefix
+        key_prefix = data.get('key_prefix', '').strip().strip('/')
+        if '/' in bucket_name:
+            parts = bucket_name.split('/', 1)
+            bucket_name = parts[0].strip()
+            if not key_prefix:
+                key_prefix = parts[1].strip().strip('/')
+        key_prefix = (key_prefix + '/') if key_prefix else ''
 
         # Check if scenario exists (built-in or custom)
         scenario_config = None
@@ -761,9 +946,9 @@ def start_test():
         session_manager.set_s3_client(session_id, s3_client)
         session_manager.set_bucket_stats_start(session_id, bucket_stats_start)
 
-        test_engine.start(scenario_config, bucket_name, s3_client, custom_overrides)
+        test_engine.start(scenario_config, bucket_name, s3_client, custom_overrides, key_prefix)
 
-        logger.info(f"[Session {session_id}] Started test: {scenario_key} on bucket {bucket_name} for {duration} seconds")
+        logger.info(f"[Session {session_id}] Started test: {scenario_key} on bucket {bucket_name} prefix='{key_prefix}' for {duration} seconds")
         return jsonify({
             'status': 'started',
             'scenario': scenario_key,

@@ -6,231 +6,85 @@
     <title>Test Scenarios - S3 Load Testing Tool</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body {
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            min-height: 100vh;
-            padding: 20px;
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        :root {
+            --bg:#0f172a; --card:#1e293b; --brd:#334155;
+            --txt:#e2e8f0; --mut:#94a3b8; --acc:#6366f1; --acc2:#3b82f6;
         }
-        .container-main {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-        .header {
-            color: white;
-            text-align: center;
-            margin-bottom: 40px;
-            font-weight: 700;
-            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.3);
-        }
-        .header h1 {
-            font-size: 2.5rem;
-            margin: 0 0 10px 0;
-        }
-        .back-link {
-            color: white;
-            text-decoration: none;
-            font-size: 0.9rem;
-            margin-bottom: 20px;
-        }
-        .back-link:hover {
-            text-decoration: underline;
-        }
-        .card {
-            border: none;
-            border-radius: 10px;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-            margin-bottom: 25px;
-            background: white;
-        }
+        * { box-sizing:border-box; }
+        body { background:var(--bg); min-height:100vh; padding:20px; font-family:'Segoe UI',system-ui,sans-serif; color:var(--txt); }
+        a { color:var(--acc2); text-decoration:none; }
+        a:hover { text-decoration:underline; }
+        .container-main { max-width:1200px; margin:0 auto; }
+        .header { text-align:center; margin-bottom:36px; }
+        .header h1 { font-size:2rem; font-weight:700; color:var(--txt); margin:0 0 8px; }
+        .header p  { color:var(--mut); font-size:.9rem; margin:0; }
+        .back-link { color:var(--acc2); font-size:.9rem; margin-bottom:20px; display:inline-block; }
+
+        /* Cards */
+        .card { background:var(--card); border:1px solid var(--brd); border-radius:10px; margin-bottom:22px; }
         .card-header {
-            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
-            color: white;
-            border-radius: 10px 10px 0 0;
-            padding: 20px;
-            font-weight: 600;
-            border: none;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
+            background:transparent; border-bottom:1px solid var(--brd);
+            color:var(--txt); border-radius:10px 10px 0 0;
+            padding:16px 22px; font-weight:600;
+            display:flex; justify-content:space-between; align-items:center;
         }
-        .card-body {
-            padding: 25px;
-        }
-        .scenario-category {
-            display: inline-block;
-            padding: 6px 12px;
-            border-radius: 20px;
-            font-size: 0.85rem;
-            font-weight: 600;
-            margin-bottom: 15px;
-        }
-        .category-throughput {
-            background: #d1ecf1;
-            color: #0c5460;
-        }
-        .category-iops {
-            background: #d4edda;
-            color: #155724;
-        }
-        .category-mixed {
-            background: #fff3cd;
-            color: #856404;
-        }
-        .category-metadata {
-            background: #f8d7da;
-            color: #721c24;
-        }
-        .category-endurance {
-            background: #d5d6ff;
-            color: #323366;
-        }
-        .category-concurrency {
-            background: #e2d5f9;
-            color: #4a148c;
-        }
-        .scenario-title {
-            font-size: 1.4rem;
-            margin-bottom: 10px;
-            color: #1e3c72;
-        }
-        .scenario-description {
-            font-size: 1.05rem;
-            color: #555;
-            margin-bottom: 20px;
-            font-style: italic;
-        }
-        .spec-table {
-            margin-top: 20px;
-        }
-        .spec-table tr:nth-child(odd) {
-            background: #f8f9fa;
-        }
-        .spec-table td {
-            padding: 12px;
-            border: 1px solid #dee2e6;
-        }
-        .spec-label {
-            font-weight: 600;
-            color: #1e3c72;
-            width: 30%;
-        }
-        .use-case {
-            background: #e7f3ff;
-            padding: 15px;
-            border-left: 4px solid #1e3c72;
-            margin-top: 20px;
-            border-radius: 5px;
-        }
-        .use-case-title {
-            font-weight: 600;
-            color: #1e3c72;
-            margin-bottom: 8px;
-        }
-        .operation-mix {
-            background: #f9f9f9;
-            padding: 15px;
-            border-radius: 5px;
-            margin-top: 15px;
-        }
-        .operation-mix-title {
-            font-weight: 600;
-            color: #1e3c72;
-            margin-bottom: 10px;
-        }
-        .operation-bar {
-            display: flex;
-            align-items: center;
-            margin-bottom: 10px;
-        }
-        .operation-label {
-            width: 100px;
-            font-weight: 500;
-        }
+        .card-header h5 { color:var(--txt)!important; margin:0; }
+        .card-body { padding:22px; }
+
+        /* Category badges */
+        .scenario-category { display:inline-block; padding:5px 12px; border-radius:20px; font-size:.8rem; font-weight:600; }
+        .category-throughput { background:rgba(6,182,212,.15);  color:#22d3ee; }
+        .category-iops       { background:rgba(34,197,94,.15);  color:#4ade80; }
+        .category-mixed      { background:rgba(245,158,11,.15); color:#fbbf24; }
+        .category-metadata   { background:rgba(239,68,68,.15);  color:#f87171; }
+        .category-endurance  { background:rgba(99,102,241,.15); color:#a5b4fc; }
+        .category-concurrency{ background:rgba(168,85,247,.15); color:#c084fc; }
+        .category-real-world { background:rgba(20,184,166,.15); color:#2dd4bf; }
+
+        /* Scenario details */
+        .scenario-description { font-size:1rem; color:var(--mut); font-style:italic; margin-bottom:18px; }
+        .spec-table { margin-top:16px; width:100%; border-collapse:collapse; }
+        .spec-table tr:nth-child(odd) { background:rgba(255,255,255,.03); }
+        .spec-table td { padding:10px 14px; border:1px solid var(--brd); color:var(--txt); font-size:.9rem; }
+        .spec-label { font-weight:600; color:var(--mut); width:32%; font-size:.82rem; text-transform:uppercase; letter-spacing:.4px; }
+
+        /* Use case box */
+        .use-case { background:rgba(99,102,241,.08); border-left:4px solid var(--acc); padding:14px; margin-top:16px; border-radius:5px; }
+        .use-case-title { font-weight:600; color:var(--acc); margin-bottom:6px; font-size:.9rem; }
+
+        /* Operation mix */
+        .operation-mix { background:var(--bg); border:1px solid var(--brd); padding:14px; border-radius:6px; margin-top:14px; }
+        .operation-mix-title { font-weight:600; color:var(--mut); margin-bottom:10px; font-size:.85rem; text-transform:uppercase; letter-spacing:.4px; }
+        .operation-bar { display:flex; align-items:center; margin-bottom:8px; }
+        .operation-label { width:80px; font-weight:500; font-size:.85rem; color:var(--mut); }
         .operation-percentage {
-            flex: 1;
-            background: #e0e0e0;
-            border-radius: 3px;
-            height: 30px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            margin: 0 10px;
-            color: white;
-            font-weight: 600;
+            flex:1; border-radius:3px; height:26px;
+            display:flex; align-items:center; justify-content:center;
+            margin:0 10px; color:white; font-weight:600; font-size:.82rem;
         }
-        .op-put {
-            background: #28a745;
-        }
-        .op-get {
-            background: #17a2b8;
-        }
-        .op-delete {
-            background: #dc3545;
-        }
-        .op-list {
-            background: #ffc107;
-            color: #333;
-        }
+        .op-put    { background:#16a34a; }
+        .op-get    { background:#0284c7; }
+        .op-delete { background:#dc2626; }
+        .op-list   { background:#d97706; }
+
+        /* Category overview grid */
         .category-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-            margin-bottom: 30px;
-            padding: 20px;
-            background: white;
-            border-radius: 10px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
+            gap:12px; margin-bottom:28px;
+            background:var(--card); border:1px solid var(--brd); border-radius:10px; padding:18px;
         }
-        .category-item {
-            padding: 15px;
-            border-radius: 5px;
-            text-align: center;
-            cursor: pointer;
-            transition: transform 0.3s;
-        }
-        .category-item:hover {
-            transform: scale(1.05);
-        }
-        .category-item-title {
-            font-weight: 600;
-            margin-bottom: 5px;
-        }
-        .category-item-count {
-            font-size: 0.9rem;
-            opacity: 0.8;
-        }
-        .toc {
-            background: white;
-            padding: 20px;
-            border-radius: 10px;
-            margin-bottom: 30px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-        }
-        .toc-title {
-            font-weight: 600;
-            color: #1e3c72;
-            margin-bottom: 15px;
-        }
-        .toc-list {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 10px;
-            list-style: none;
-            padding: 0;
-            margin: 0;
-        }
-        .toc-list li {
-            border-left: 3px solid #1e3c72;
-            padding-left: 10px;
-        }
-        .toc-list a {
-            color: #1e3c72;
-            text-decoration: none;
-        }
-        .toc-list a:hover {
-            text-decoration: underline;
-        }
+        .category-item { padding:14px; border-radius:8px; text-align:center; cursor:pointer; transition:transform .2s; }
+        .category-item:hover { transform:scale(1.04); }
+        .category-item-title { font-weight:600; margin-bottom:4px; font-size:.9rem; }
+        .category-item-count { font-size:.8rem; opacity:.8; }
+
+        /* TOC */
+        .toc { background:var(--card); border:1px solid var(--brd); padding:18px; border-radius:10px; margin-bottom:28px; }
+        .toc-title { font-weight:600; color:var(--txt); margin-bottom:14px; }
+        .toc-list { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:8px; list-style:none; padding:0; margin:0; }
+        .toc-list li { border-left:3px solid var(--acc); padding-left:10px; }
+        .toc-list a { color:var(--mut); font-size:.88rem; }
+        .toc-list a:hover { color:var(--txt); }
     </style>
 </head>
 <body>
