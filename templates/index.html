@@ -445,6 +445,7 @@
             <a href="/reports" class="tool-btn">📊 Reports</a>
             <a href="/scenarios" class="tool-btn">📋 Scenarios</a>
             <a href="/custom" class="tool-btn">⚙️ Custom</a>
+            <a href="/actions-dictionary" class="tool-btn" target="_blank">📖 Action Dictionary</a>
         </div>
     </div>
 
@@ -725,9 +726,12 @@
             <div class="modal-body" id="policyProbeContent">
                 <div class="spinner-border spinner-border-sm" role="status"></div> Running permission checks...
             </div>
-            <div class="modal-footer">
-                <button type="button" class="btn btn-primary" onclick="policyProbe()">🔄 Re-run</button>
-                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            <div class="modal-footer" style="justify-content:space-between;">
+                <a href="/actions-dictionary" target="_blank" style="font-size:13px;">📖 What do these actions mean?</a>
+                <div>
+                    <button type="button" class="btn btn-primary" onclick="policyProbe()">🔄 Re-run</button>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
             </div>
         </div>
     </div>

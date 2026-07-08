@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Action Dictionary - S3 Load Testing Tool</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        :root {
+            --bg:#0f172a; --card:#1e293b; --brd:#334155;
+            --txt:#e2e8f0; --mut:#94a3b8; --acc:#6366f1; --acc2:#3b82f6;
+        }
+        * { box-sizing:border-box; }
+        body { background:var(--bg); min-height:100vh; padding:20px; font-family:'Segoe UI',system-ui,sans-serif; color:var(--txt); }
+        a { color:var(--acc2); text-decoration:none; }
+        a:hover { text-decoration:underline; }
+        .container-main { max-width:1100px; margin:0 auto; }
+        .header { text-align:center; margin-bottom:28px; }
+        .header h1 { font-size:2rem; font-weight:700; color:var(--txt); margin:0 0 8px; }
+        .header p  { color:var(--mut); font-size:.9rem; margin:0; }
+        .back-link { color:var(--acc2); font-size:.9rem; margin-bottom:20px; display:inline-block; }
+
+        .search-box { margin-bottom:24px; }
+        .search-box input {
+            background:var(--card); border:1px solid var(--brd); color:var(--txt);
+            border-radius:8px; padding:11px 16px; font-size:.95rem; width:100%;
+        }
+        .search-box input:focus { outline:none; border-color:var(--acc); box-shadow:0 0 0 3px rgba(99,102,241,.2); }
+        .search-box input::placeholder { color:var(--mut); }
+
+        .card { background:var(--card); border:1px solid var(--brd); border-radius:10px; margin-bottom:20px; overflow:hidden; }
+        .card-header {
+            background:transparent; border-bottom:1px solid var(--brd);
+            color:var(--txt); padding:14px 20px; font-weight:600; font-size:1rem;
+        }
+        .card-body { padding:0; }
+
+        .action-row {
+            padding:14px 20px; border-bottom:1px solid var(--brd);
+            display:flex; gap:16px; align-items:flex-start;
+        }
+        .action-row:last-child { border-bottom:none; }
+        .action-row.hidden { display:none; }
+
+        .action-name-col { width:270px; flex-shrink:0; }
+        .action-name { font-family:'SFMono-Regular',Consolas,monospace; font-size:.88rem; font-weight:700; color:#a5b4fc; display:block; }
+        .action-badges { margin-top:6px; display:flex; gap:6px; flex-wrap:wrap; }
+        .badge-pill { font-size:.68rem; font-weight:600; padding:2px 8px; border-radius:12px; text-transform:uppercase; letter-spacing:.3px; }
+        .badge-readonly { background:rgba(34,197,94,.15); color:#4ade80; }
+        .badge-mutating { background:rgba(239,68,68,.15); color:#f87171; }
+        .badge-iam      { background:rgba(168,85,247,.15); color:#c084fc; }
+
+        .action-desc { flex:1; font-size:.88rem; color:var(--mut); line-height:1.5; }
+        .action-desc strong { color:var(--txt); font-weight:600; }
+        .action-risk { font-size:.78rem; color:#fbbf24; margin-top:5px; display:block; }
+
+        .no-results { text-align:center; padding:40px; color:var(--mut); font-size:.95rem; display:none; }
+
+        @media (max-width:700px) {
+            .action-row { flex-direction:column; }
+            .action-name-col { width:100%; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container-main">
+        <a href="/" class="back-link">← Back to Tool</a>
+
+        <div class="header">
+            <h1>📖 Action Dictionary</h1>
+            <p>Plain-English meaning of every operation checked by the Policy Probe permission matrix</p>
+        </div>
+
+        <div class="search-box">
+            <input type="text" id="searchInput" placeholder="🔍 Search by action name or keyword (e.g. 'delete', 'versioning', 'lock')..." oninput="filterActions()">
+        </div>
+
+        <div id="dictionaryContent"></div>
+        <div class="no-results" id="noResults">No matching actions found.</div>
+    </div>
+
+<script>
+const DICTIONARY = {
+    'Bucket Read Operations': [
+        { name:'s3:HeadBucket', readonly:true, desc:'Checks whether a bucket <strong>exists</strong> and that you have permission to access it. Returns no data — just yes/no.' },
+        { name:'s3:ListBucket', readonly:true, desc:'Lists the <strong>objects and folders</strong> inside a bucket. Required for browsing, and for most tools to even show bucket contents.' },
+        { name:'s3:GetBucketAcl', readonly:true, desc:'Reads the bucket\'s <strong>Access Control List</strong> — who owns it and who else has read/write grants at the ACL level (older permission system, separate from IAM policies).' },
+        { name:'s3:GetBucketPolicy', readonly:true, desc:'Reads the bucket\'s <strong>resource-based policy</strong> (a JSON document attached directly to the bucket that grants/denies access, independent of IAM user policies).' },
+        { name:'s3:GetBucketVersioning', readonly:true, desc:'Checks if <strong>versioning</strong> is enabled — i.e. whether overwriting/deleting an object keeps old versions instead of destroying them.' },
+        { name:'s3:GetBucketCors', readonly:true, desc:'Reads the bucket\'s <strong>CORS</strong> (Cross-Origin Resource Sharing) rules — which lets browsers on other websites call this bucket directly from JavaScript.' },
+        { name:'s3:GetObjectLockConfiguration', readonly:true, desc:'Checks if <strong>Object Lock</strong> (WORM — Write Once Read Many) is configured, and in which mode (Governance or Compliance).' },
+    ],
+    'Object Operations': [
+        { name:'s3:PutObject', readonly:false, desc:'Uploads (writes) an object into the bucket. This is the core operation every write/load test relies on.' },
+        { name:'s3:GetObject', readonly:true, desc:'Downloads (reads) the content of an object. This is the core operation every read/load test relies on.' },
+        { name:'s3:HeadObject', readonly:true, desc:'Fetches an object\'s <strong>metadata only</strong> (size, content-type, last-modified) without downloading its actual content. Fast existence/metadata check.' },
+        { name:'s3:GetObjectAcl', readonly:true, desc:'Reads a specific object\'s <strong>Access Control List</strong> — who can read/write that individual object.' },
+        { name:'s3:DeleteObject', readonly:false, desc:'Deletes an object. If versioning is on, this may just add a "delete marker" rather than truly erasing old versions.' },
+    ],
+    'Write / Control-Plane': [
+        { name:'s3:CreateBucket', readonly:false, desc:'Creates a brand new bucket. Rarely needed for day-to-day testing — mostly relevant for provisioning/automation permissions.' },
+        { name:'s3:DeleteBucket', readonly:false, desc:'Permanently deletes a bucket. Only works if the bucket is completely empty.', risk:'Destructive if misused — always double-check the target bucket name.' },
+        { name:'s3:PutBucketAcl', readonly:false, desc:'Changes the bucket-level Access Control List — i.e. grants or revokes coarse read/write access to other accounts.' },
+        { name:'s3:PutBucketVersioning', readonly:false, desc:'Turns object <strong>versioning</strong> on or off for the whole bucket. Once enabled, it can only be suspended, never fully disabled again.' },
+        { name:'s3:PutBucketObjectLockConfiguration', readonly:false, desc:'Enables or configures <strong>Object Lock</strong> (WORM) on the bucket.', risk:'The probe itself may enable Object Lock as a side effect of testing this permission.' },
+        { name:'s3:PutObjectRetention', readonly:false, desc:'Sets a <strong>retention date</strong> on an individual object so it cannot be deleted or overwritten until that date passes (requires Object Lock enabled).' },
+        { name:'s3:PutObjectLegalHold', readonly:false, desc:'Places a <strong>legal hold</strong> flag on an object, blocking deletion indefinitely until the hold is explicitly removed — independent of any retention date.' },
+        { name:'s3:BypassGovernanceRetention', readonly:false, desc:'A special override permission that allows deleting/overwriting an object even though it\'s under <strong>Governance-mode</strong> retention lock. Does NOT work against Compliance mode — that one is unbreakable by design.' },
+    ],
+    'IAM Operations': [
+        { name:'iam:CreateUser', readonly:false, desc:'Creates a brand new <strong>IAM user</strong> (an identity with its own access key/secret, separate from your own credentials). This is the permission needed to provision test users.' },
+        { name:'iam:CreateAccessKey', readonly:false, desc:'Generates a new <strong>access key + secret key pair</strong> for an existing IAM user — this is what actually produces usable credentials.' },
+        { name:'iam:PutUserPolicy', readonly:false, desc:'Attaches an <strong>inline policy</strong> (a JSON permission document) directly to an IAM user, scoping exactly what that user can and cannot do.' },
+    ],
+};
+
+function renderDictionary() {
+    const container = document.getElementById('dictionaryContent');
+    let html = '';
+    for (const [group, actions] of Object.entries(DICTIONARY)) {
+        html += `<div class="card" data-group>
+            <div class="card-header">${group}</div>
+            <div class="card-body">`;
+        for (const a of actions) {
+            const badges = [];
+            if (a.name.startsWith('iam:')) badges.push('<span class="badge-pill badge-iam">IAM</span>');
+            badges.push(a.readonly
+                ? '<span class="badge-pill badge-readonly">Read-only</span>'
+                : '<span class="badge-pill badge-mutating">Mutating</span>');
+            html += `<div class="action-row" data-name="${a.name.toLowerCase()}" data-desc="${a.desc.replace(/<[^>]+>/g,'').toLowerCase()}">
+                <div class="action-name-col">
+                    <span class="action-name">${a.name}</span>
+                    <div class="action-badges">${badges.join('')}</div>
+                </div>
+                <div class="action-desc">
+                    ${a.desc}
+                    ${a.risk ? `<span class="action-risk">⚠ ${a.risk}</span>` : ''}
+                </div>
+            </div>`;
+        }
+        html += `</div></div>`;
+    }
+    container.innerHTML = html;
+}
+
+function filterActions() {
+    const q = document.getElementById('searchInput').value.trim().toLowerCase();
+    const rows = document.querySelectorAll('.action-row');
+    let visibleCount = 0;
+    rows.forEach(row => {
+        const match = !q || row.dataset.name.includes(q) || row.dataset.desc.includes(q);
+        row.classList.toggle('hidden', !match);
+        if (match) visibleCount++;
+    });
+    document.querySelectorAll('[data-group]').forEach(card => {
+        const anyVisible = [...card.querySelectorAll('.action-row')].some(r => !r.classList.contains('hidden'));
+        card.style.display = anyVisible ? 'block' : 'none';
+    });
+    document.getElementById('noResults').style.display = visibleCount === 0 ? 'block' : 'none';
+}
+
+renderDictionary();
+</script>
+</body>
+</html>

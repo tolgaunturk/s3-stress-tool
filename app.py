@@ -1404,6 +1404,12 @@ def scenarios_guide():
     return render_template('scenarios.html')
 
 
+@app.route('/actions-dictionary')
+def actions_dictionary_page():
+    """Serve the Policy Probe action dictionary/glossary page."""
+    return render_template('actions_dictionary.html')
+
+
 @app.route('/custom')
 def custom_scenarios_page():
     """Serve custom scenarios builder page."""
