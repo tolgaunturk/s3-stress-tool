@@ -702,11 +702,203 @@ def policy_probe():
             for _op in ('s3:PutObjectRetention', 's3:PutObjectLegalHold', 's3:BypassGovernanceRetention'):
                 results[_op] = {'status': 'SKIPPED', 'detail': 'Skipped — write probe object could not be created'}
 
+        # ── IAM Operations ──────────────────────────────────────────────────────
+        _iam_probe_user = f'probe-iam-{uuid.uuid4().hex[:8]}'
+        _iam_user_created = False
+        _iam_key_id = None
+        try:
+            from botocore.config import Config as _IamConfig
+            iam = boto3.client('iam',
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+                endpoint_url=endpoint_url or None,
+                region_name=region if region not in ('default', '', None) else 'us-east-1',
+                config=_IamConfig(connect_timeout=10, read_timeout=30, retries={'max_attempts': 1}),
+            )
+
+            # iam:CreateUser
+            try:
+                iam.create_user(UserName=_iam_probe_user)
+                results['iam:CreateUser'] = {'status': 'ALLOWED', 'detail': f'Created probe user {_iam_probe_user}'}
+                _iam_user_created = True
+            except ClientError as e:
+                _code = e.response['Error']['Code']
+                _msg  = e.response['Error'].get('Message', '')
+                if _code in DENIED_CODES or 'AccessDenied' in _msg:
+                    results['iam:CreateUser'] = {'status': 'DENIED', 'detail': _code}
+                else:
+                    results['iam:CreateUser'] = {'status': 'ERROR', 'detail': _code}
+
+            # iam:CreateAccessKey
+            if _iam_user_created:
+                try:
+                    _kr = iam.create_access_key(UserName=_iam_probe_user)
+                    _iam_key_id = _kr['AccessKey']['AccessKeyId']
+                    results['iam:CreateAccessKey'] = {'status': 'ALLOWED', 'detail': f'Key {_iam_key_id[:8]}... created'}
+                except ClientError as e:
+                    _code = e.response['Error']['Code']
+                    _msg  = e.response['Error'].get('Message', '')
+                    if _code in DENIED_CODES or 'AccessDenied' in _msg:
+                        results['iam:CreateAccessKey'] = {'status': 'DENIED', 'detail': _code}
+                    else:
+                        results['iam:CreateAccessKey'] = {'status': 'ERROR', 'detail': _code}
+            else:
+                results['iam:CreateAccessKey'] = {'status': 'SKIPPED', 'detail': 'Requires iam:CreateUser'}
+
+            # iam:PutUserPolicy
+            if _iam_user_created:
+                _inline = json.dumps({"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:ListBucket"],"Resource":[f"arn:aws:s3:::{bucket_name}",f"arn:aws:s3:::{bucket_name}/*"]}]})
+                try:
+                    iam.put_user_policy(UserName=_iam_probe_user, PolicyName='probe-policy', PolicyDocument=_inline)
+                    results['iam:PutUserPolicy'] = {'status': 'ALLOWED', 'detail': 'Inline policy attached'}
+                except ClientError as e:
+                    _code = e.response['Error']['Code']
+                    _msg  = e.response['Error'].get('Message', '')
+                    if _code in DENIED_CODES or 'AccessDenied' in _msg:
+                        results['iam:PutUserPolicy'] = {'status': 'DENIED', 'detail': _code}
+                    else:
+                        results['iam:PutUserPolicy'] = {'status': 'ERROR', 'detail': _code}
+            else:
+                results['iam:PutUserPolicy'] = {'status': 'SKIPPED', 'detail': 'Requires iam:CreateUser'}
+
+        except Exception as e:
+            for _op in ('iam:CreateUser', 'iam:CreateAccessKey', 'iam:PutUserPolicy'):
+                if _op not in results:
+                    results[_op] = {'status': 'ERROR', 'detail': str(e)[:80]}
+        finally:
+            if _iam_user_created:
+                try:
+                    if _iam_key_id:
+                        iam.delete_access_key(UserName=_iam_probe_user, AccessKeyId=_iam_key_id)
+                except Exception: pass
+                try:
+                    iam.delete_user_policy(UserName=_iam_probe_user, PolicyName='probe-policy')
+                except Exception: pass
+                try:
+                    iam.delete_user(UserName=_iam_probe_user)
+                except Exception: pass
+
         logger.info(f"Policy probe on bucket '{bucket_name}': {json.dumps({k: v['status'] for k, v in results.items()})}")
         return jsonify({'results': results, 'bucket': bucket_name, 'endpoint': endpoint_url or 'AWS S3'})
 
     except Exception as e:
         logger.error(f"Policy probe error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+def _iam_client_from_request(data):
+    """Create a boto3 IAM client from request credentials."""
+    from botocore.config import Config as _IamCfg
+    endpoint_url = data.get('endpoint_url', '').strip()
+    access_key   = data.get('access_key', '').strip()
+    secret_key   = data.get('secret_key', '').strip()
+    region       = data.get('region', 'us-east-1')
+    if not (access_key and secret_key):
+        raise ValueError('access_key and secret_key are required')
+    return boto3.client('iam',
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        endpoint_url=endpoint_url or None,
+        region_name=region if region not in ('default', '', None) else 'us-east-1',
+        config=_IamCfg(connect_timeout=10, read_timeout=30, retries={'max_attempts': 1}),
+    )
+
+
+@app.route('/api/iam/create-test-user', methods=['POST'])
+def iam_create_test_user():
+    """Create an IAM test user with a bucket-scoped inline policy."""
+    try:
+        data = request.json
+        iam    = _iam_client_from_request(data)
+        bucket = data.get('bucket_name', '').strip()
+        username   = data.get('username', f'test-user-{uuid.uuid4().hex[:8]}').strip()
+        permission = data.get('permission', 'read-only')
+
+        PERM_ACTIONS = {
+            'read-only':  ['s3:GetObject', 's3:HeadObject', 's3:ListBucket'],
+            'write-only': ['s3:PutObject'],
+            'read-write': ['s3:GetObject', 's3:HeadObject', 's3:ListBucket', 's3:PutObject', 's3:DeleteObject'],
+            'full-s3':    ['s3:*'],
+        }
+        actions = PERM_ACTIONS.get(permission, PERM_ACTIONS['read-only'])
+
+        iam.create_user(UserName=username)
+
+        key_resp = iam.create_access_key(UserName=username)
+        new_key    = key_resp['AccessKey']['AccessKeyId']
+        new_secret = key_resp['AccessKey']['SecretAccessKey']
+
+        policy_doc = json.dumps({
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Action": actions,
+                "Resource": [f"arn:aws:s3:::{bucket}", f"arn:aws:s3:::{bucket}/*"]
+            }]
+        })
+        iam.put_user_policy(UserName=username, PolicyName='bucket-access', PolicyDocument=policy_doc)
+
+        logger.info(f"Created IAM test user: {username} ({permission}) on bucket {bucket}")
+        return jsonify({
+            'status': 'created',
+            'username': username,
+            'access_key_id': new_key,
+            'secret_access_key': new_secret,
+            'permission': permission,
+            'bucket': bucket,
+        })
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg  = e.response['Error'].get('Message', str(e))
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"IAM create-test-user error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/iam/list-test-users', methods=['POST'])
+def iam_list_test_users():
+    """List IAM users."""
+    try:
+        data = request.json
+        iam  = _iam_client_from_request(data)
+        resp = iam.list_users()
+        users = [{'username': u['UserName'], 'created': u['CreateDate'].isoformat(), 'arn': u.get('Arn', '')}
+                 for u in resp.get('Users', [])]
+        return jsonify({'users': users})
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg  = e.response['Error'].get('Message', str(e))
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"IAM list-users error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/iam/delete-test-user', methods=['POST'])
+def iam_delete_test_user():
+    """Delete an IAM user — removes all access keys and inline policies first."""
+    try:
+        data     = request.json
+        iam      = _iam_client_from_request(data)
+        username = data.get('username', '').strip()
+        if not username:
+            return jsonify({'error': 'username is required'}), 400
+
+        for k in iam.list_access_keys(UserName=username).get('AccessKeyMetadata', []):
+            iam.delete_access_key(UserName=username, AccessKeyId=k['AccessKeyId'])
+        for p in iam.list_user_policies(UserName=username).get('PolicyNames', []):
+            iam.delete_user_policy(UserName=username, PolicyName=p)
+        iam.delete_user(UserName=username)
+
+        logger.info(f"Deleted IAM test user: {username}")
+        return jsonify({'status': 'deleted', 'username': username})
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg  = e.response['Error'].get('Message', str(e))
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"IAM delete-user error: {e}")
         return jsonify({'error': str(e)}), 500
 
 

@@ -441,6 +441,7 @@
             <button class="tool-btn" onclick="openBucketManager()">🗂 Buckets</button>
             <button class="tool-btn" onclick="policyProbe()">🔍 Policy</button>
             <button class="tool-btn" onclick="checkRetentionLock()">🔒 Lock</button>
+            <button class="tool-btn" onclick="openIAMManager()">👤 IAM Users</button>
             <a href="/reports" class="tool-btn">📊 Reports</a>
             <a href="/scenarios" class="tool-btn">📋 Scenarios</a>
             <a href="/custom" class="tool-btn">⚙️ Custom</a>
@@ -743,6 +744,69 @@
             </div>
             <div class="modal-body" id="retentionCheckContent">
                 <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div> Checking...
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- ═══════════ IAM USER MANAGER MODAL ═══════════ -->
+<div class="modal fade" id="iamManagerModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header" style="background:linear-gradient(135deg,#004d40 0%,#00695c 100%);color:white;">
+                <h5 class="modal-title">👤 IAM Test User Manager</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" style="padding:0;">
+                <ul class="nav nav-tabs" style="padding:0 16px;background:#f8f9fa;border-bottom:2px solid #dee2e6;">
+                    <li class="nav-item">
+                        <a class="nav-link active" id="iamTabCreateLink" href="#" onclick="iamShowTab('create');return false;" style="font-weight:600;">➕ Create Test User</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="iamTabManageLink" href="#" onclick="iamShowTab('manage');return false;" style="font-weight:600;">📋 Manage Users</a>
+                    </li>
+                </ul>
+
+                <!-- CREATE TAB -->
+                <div id="iamTabCreate" style="padding:20px;">
+                    <p style="color:#555;font-size:13px;margin-bottom:16px;">Creates an IAM user with bucket-scoped credentials you can use to test access policies.</p>
+                    <div class="row g-3">
+                        <div class="col-md-6">
+                            <label style="font-size:13px;font-weight:600;">Username</label>
+                            <input type="text" id="iamNewUsername" class="form-control form-control-sm" placeholder="auto-generated">
+                        </div>
+                        <div class="col-md-6">
+                            <label style="font-size:13px;font-weight:600;">Target Bucket</label>
+                            <input type="text" id="iamTargetBucket" class="form-control form-control-sm" placeholder="bucket-name">
+                        </div>
+                        <div class="col-12">
+                            <label style="font-size:13px;font-weight:600;">Permission Template</label>
+                            <select id="iamPermission" class="form-select form-select-sm">
+                                <option value="read-only">📖 Read Only — GetObject, HeadObject, ListBucket</option>
+                                <option value="write-only">✏️ Write Only — PutObject</option>
+                                <option value="read-write">🔄 Read + Write — GetObject, PutObject, DeleteObject, ListBucket</option>
+                                <option value="full-s3">⚡ Full S3 — s3:* (all operations)</option>
+                            </select>
+                        </div>
+                        <div class="col-12">
+                            <button class="btn btn-success btn-sm" onclick="iamCreateUser()" style="font-weight:600;">➕ Create User</button>
+                        </div>
+                    </div>
+                    <div id="iamCreateResult" style="margin-top:16px;"></div>
+                </div>
+
+                <!-- MANAGE TAB -->
+                <div id="iamTabManage" style="padding:20px;display:none;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                        <span style="font-size:13px;color:#555;">Users created on this S3/IAM endpoint.</span>
+                        <button class="btn btn-outline-primary btn-sm" onclick="iamListUsers()">🔄 Refresh</button>
+                    </div>
+                    <div id="iamUserListContent"><p style="color:#888;font-size:13px;">Click Refresh to load users.</p></div>
+                </div>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
@@ -1524,6 +1588,7 @@
                 'Bucket Read Operations': ['s3:HeadBucket','s3:ListBucket','s3:GetBucketAcl','s3:GetBucketPolicy','s3:GetBucketVersioning','s3:GetBucketCors','s3:GetObjectLockConfiguration'],
                 'Object Operations': ['s3:PutObject','s3:GetObject','s3:HeadObject','s3:GetObjectAcl','s3:DeleteObject'],
                 'Write / Control-Plane': ['s3:CreateBucket','s3:DeleteBucket','s3:PutBucketAcl','s3:PutBucketVersioning','s3:PutBucketObjectLockConfiguration','s3:PutObjectRetention','s3:PutObjectLegalHold','s3:BypassGovernanceRetention'],
+                'IAM Operations': ['iam:CreateUser','iam:CreateAccessKey','iam:PutUserPolicy'],
             };
             let html = `<p style="color:#555;font-size:13px;">Endpoint: <strong>${data.endpoint}</strong> &nbsp;|&nbsp; Bucket: <strong>${data.bucket}</strong></p>`;
             for (const [gn, ops] of Object.entries(groups)) {
@@ -1545,6 +1610,155 @@
             c.innerHTML = html;
         })
         .catch(e => { c.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
+    }
+
+    // ── IAM User Manager ─────────────────────────────────────────────────────
+    function openIAMManager() {
+        const endpoint  = document.getElementById('endpointUrl').value;
+        const accessKey = document.getElementById('accessKey').value;
+        const secretKey = document.getElementById('secretKey').value;
+        const bucket    = document.getElementById('bucketName').value.split('/')[0].trim();
+        if (!endpoint || !accessKey || !secretKey) { alert('Please fill in S3 configuration fields first'); return; }
+        document.getElementById('iamTargetBucket').value  = bucket || '';
+        document.getElementById('iamNewUsername').value   = '';
+        document.getElementById('iamCreateResult').innerHTML = '';
+        document.getElementById('iamUserListContent').innerHTML = '<p style="color:#888;font-size:13px;">Click Refresh to load users.</p>';
+        iamShowTab('create');
+        new bootstrap.Modal(document.getElementById('iamManagerModal')).show();
+    }
+
+    function iamShowTab(tab) {
+        document.getElementById('iamTabCreate').style.display  = tab === 'create'  ? 'block' : 'none';
+        document.getElementById('iamTabManage').style.display  = tab === 'manage'  ? 'block' : 'none';
+        document.getElementById('iamTabCreateLink').classList.toggle('active', tab === 'create');
+        document.getElementById('iamTabManageLink').classList.toggle('active', tab === 'manage');
+        if (tab === 'manage') iamListUsers();
+    }
+
+    function _iamCreds() {
+        return {
+            endpoint_url: document.getElementById('endpointUrl').value,
+            access_key:   document.getElementById('accessKey').value,
+            secret_key:   document.getElementById('secretKey').value,
+            region:       document.getElementById('region').value,
+        };
+    }
+
+    function iamCreateUser() {
+        const bucket   = document.getElementById('iamTargetBucket').value.trim();
+        const username = document.getElementById('iamNewUsername').value.trim() || undefined;
+        const perm     = document.getElementById('iamPermission').value;
+        if (!bucket) { alert('Target bucket is required'); return; }
+        const res = document.getElementById('iamCreateResult');
+        res.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Creating user...';
+        fetch('/api/iam/create-test-user', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ ..._iamCreds(), bucket_name: bucket, username, permission: perm })
+        }).then(r => r.json()).then(data => {
+            if (data.error) { res.innerHTML = `<div class="alert alert-danger">❌ ${data.error}</div>`; return; }
+            const permLabels = {'read-only':'📖 Read Only','write-only':'✏️ Write Only','read-write':'🔄 Read + Write','full-s3':'⚡ Full S3'};
+            res.innerHTML = `
+                <div style="background:#e8f5e9;border:1px solid #a5d6a7;border-radius:8px;padding:14px;">
+                    <div style="font-weight:700;color:#1b5e20;margin-bottom:10px;">✅ User created: <code>${data.username}</code> — ${permLabels[data.permission]||data.permission}</div>
+                    <div style="margin-bottom:6px;font-size:13px;"><strong>Bucket:</strong> ${data.bucket}</div>
+                    <div style="margin-bottom:10px;">
+                        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px;">Access Key ID</label>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <code style="background:#f1f8e9;padding:4px 8px;border-radius:4px;font-size:13px;flex:1;">${data.access_key_id}</code>
+                            <button class="btn btn-outline-secondary btn-sm" style="white-space:nowrap;" onclick="navigator.clipboard.writeText('${data.access_key_id}');this.textContent='✔ Copied'">📋 Copy</button>
+                        </div>
+                    </div>
+                    <div style="margin-bottom:12px;">
+                        <label style="font-size:12px;font-weight:600;display:block;margin-bottom:3px;">Secret Access Key</label>
+                        <div style="display:flex;gap:6px;align-items:center;">
+                            <code style="background:#f1f8e9;padding:4px 8px;border-radius:4px;font-size:13px;flex:1;">${data.secret_access_key}</code>
+                            <button class="btn btn-outline-secondary btn-sm" style="white-space:nowrap;" onclick="navigator.clipboard.writeText('${data.secret_access_key}');this.textContent='✔ Copied'">📋 Copy</button>
+                        </div>
+                    </div>
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                        <button class="btn btn-primary btn-sm" onclick="iamRunProbeAsUser('${data.access_key_id}','${data.secret_access_key}','${data.bucket}')">🔍 Run Policy Probe with this user</button>
+                        <button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('iamCreateResult').innerHTML='';document.getElementById('iamNewUsername').value='';">🔄 Create Another</button>
+                    </div>
+                    <div style="margin-top:8px;font-size:11px;color:#888;">⚠ Save these credentials now — the secret key cannot be retrieved again.</div>
+                </div>`;
+        }).catch(e => { res.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
+    }
+
+    function iamListUsers() {
+        const c = document.getElementById('iamUserListContent');
+        c.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading...';
+        fetch('/api/iam/list-test-users', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(_iamCreds())
+        }).then(r => r.json()).then(data => {
+            if (data.error) { c.innerHTML = `<div class="alert alert-danger">❌ ${data.error}</div>`; return; }
+            if (!data.users.length) { c.innerHTML = '<p style="color:#888;font-size:13px;">No IAM users found.</p>'; return; }
+            let html = `<table class="table table-sm" style="font-size:13px;"><thead><tr><th>Username</th><th>Created</th><th></th></tr></thead><tbody>`;
+            for (const u of data.users) {
+                const created = u.created ? u.created.replace('T',' ').replace(/\.\d+.*/,'') : '—';
+                html += `<tr>
+                    <td><code>${u.username}</code></td>
+                    <td style="color:#888;">${created}</td>
+                    <td><button class="btn btn-outline-danger btn-sm" onclick="iamDeleteUser('${u.username}',this)">🗑 Delete</button></td>
+                </tr>`;
+            }
+            html += '</tbody></table>';
+            html += `<div style="font-size:12px;color:#888;">${data.users.length} user(s) total</div>`;
+            c.innerHTML = html;
+        }).catch(e => { c.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
+    }
+
+    function iamDeleteUser(username, btn) {
+        if (!confirm(`Delete IAM user "${username}" and all their access keys?`)) return;
+        btn.disabled = true; btn.textContent = '⏳';
+        fetch('/api/iam/delete-test-user', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ ..._iamCreds(), username })
+        }).then(r => r.json()).then(data => {
+            if (data.error) { btn.disabled = false; btn.textContent = '🗑 Delete'; alert('Error: ' + data.error); return; }
+            iamListUsers();
+        }).catch(e => { btn.disabled = false; btn.textContent = '🗑 Delete'; alert(e.message); });
+    }
+
+    function iamRunProbeAsUser(accessKeyId, secretKey, bucket) {
+        const endpoint = document.getElementById('endpointUrl').value;
+        const region   = document.getElementById('region').value;
+        bootstrap.Modal.getInstance(document.getElementById('iamManagerModal')).hide();
+        const c = document.getElementById('policyProbeContent');
+        c.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Running permission checks as IAM user...';
+        new bootstrap.Modal(document.getElementById('policyProbeModal')).show();
+        fetch('/api/policy/probe', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ endpoint_url: endpoint, access_key: accessKeyId, secret_key: secretKey, bucket_name: bucket, region })
+        }).then(r => r.json()).then(data => {
+            if (data.error) { c.innerHTML = `<div class="alert alert-danger">❌ ${data.error}</div>`; return; }
+            const ss = {'ALLOWED':'background:#d4edda;color:#155724;border:1px solid #c3e6cb;','DENIED':'background:#f8d7da;color:#721c24;border:1px solid #f5c6cb;','ERROR':'background:#fff3cd;color:#856404;border:1px solid #ffeeba;','SKIPPED':'background:#e2e3e5;color:#383d41;border:1px solid #d6d8db;'};
+            const si = {'ALLOWED':'✅','DENIED':'❌','ERROR':'⚠️','SKIPPED':'—'};
+            const groups = {
+                'Bucket Read Operations': ['s3:HeadBucket','s3:ListBucket','s3:GetBucketAcl','s3:GetBucketPolicy','s3:GetBucketVersioning','s3:GetBucketCors','s3:GetObjectLockConfiguration'],
+                'Object Operations': ['s3:PutObject','s3:GetObject','s3:HeadObject','s3:GetObjectAcl','s3:DeleteObject'],
+                'Write / Control-Plane': ['s3:CreateBucket','s3:DeleteBucket','s3:PutBucketAcl','s3:PutBucketVersioning','s3:PutBucketObjectLockConfiguration','s3:PutObjectRetention','s3:PutObjectLegalHold','s3:BypassGovernanceRetention'],
+                'IAM Operations': ['iam:CreateUser','iam:CreateAccessKey','iam:PutUserPolicy'],
+            };
+            let html = `<div class="alert alert-info" style="font-size:13px;">👤 Running as IAM user <strong>${accessKeyId.substring(0,8)}...</strong> on bucket <strong>${bucket}</strong></div>`;
+            for (const [gn, ops] of Object.entries(groups)) {
+                html += `<div style="font-weight:700;color:#1a237e;margin:14px 0 7px;">${gn}</div>
+                    <table class="table table-sm" style="font-size:13px;"><thead><tr><th>Operation</th><th>Status</th><th>Detail</th></tr></thead><tbody>`;
+                for (const op of ops) {
+                    const r = data.results[op] || { status:'SKIPPED', detail:null };
+                    html += `<tr><td><code>${op}</code></td><td><span style="padding:2px 9px;border-radius:20px;font-weight:600;font-size:12px;${ss[r.status]}">${si[r.status]} ${r.status}</span></td><td style="color:#888;font-size:12px;">${r.detail||''}</td></tr>`;
+                }
+                html += `</tbody></table>`;
+            }
+            const allowed = Object.values(data.results).filter(r => r.status==='ALLOWED').length;
+            const denied  = Object.values(data.results).filter(r => r.status==='DENIED').length;
+            const total   = Object.values(data.results).filter(r => r.status!=='SKIPPED').length;
+            html += `<div style="background:#f0f4ff;padding:11px;border-radius:8px;border-left:4px solid #3949ab;font-size:13px;margin-top:8px;">
+                <strong>Summary:</strong> ${allowed}/${total} operations allowed &nbsp;|&nbsp; ${denied} denied
+                ${denied>0?'<br><span style="color:#721c24;">⚠ Some operations are denied — load tests using those operation types will show failed ops.</span>':''}
+            </div>`;
+            c.innerHTML = html;
+        }).catch(e => { c.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
     }
 
     // ── Object Lock Check ────────────────────────────────────────────────────
