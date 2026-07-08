@@ -665,9 +665,11 @@
                     <div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:12px;margin-bottom:14px;">
                         <strong style="color:#1d4ed8;">📁 Create Folder</strong>
                         <span id="bmFolderCtx" style="font-size:12px;color:#1d4ed8;margin-left:8px;font-weight:600;"></span>
-                        <div id="bmFolderNoBucket" style="display:none;color:#92400e;background:#fef3c7;border:1px solid #fcd34d;border-radius:4px;padding:10px 14px;margin-top:8px;font-size:13px;align-items:center;gap:12px;flex-wrap:wrap;">
-                            <span>⚠️ No bucket selected. Go to the <strong>Buckets</strong> tab and click <strong>📂 Browse</strong> on a bucket first.</span>
-                            <button class="btn btn-sm btn-warning" onclick="bmShowTab('buckets')" style="white-space:nowrap;">← Go to Buckets tab</button>
+                        <div id="bmFolderNoBucket" style="display:none;margin-top:8px;">
+                            <div style="color:#92400e;background:#fef3c7;border:1px solid #fcd34d;border-radius:4px;padding:8px 12px;font-size:13px;margin-bottom:10px;">
+                                ⚠️ Select a bucket below to browse it.
+                            </div>
+                            <div id="bmInlineBucketList"><div class="text-muted text-center py-2"><div class="spinner-border spinner-border-sm"></div> Loading buckets...</div></div>
                         </div>
                         <div id="bmFolderForm" style="display:flex;gap:10px;margin-top:8px;">
                             <input type="text" id="bmNewFolderName" class="form-control" style="max-width:260px;" placeholder="folder-name">
@@ -1138,10 +1140,31 @@
             form.style.display = 'flex';
         } else {
             ctx.textContent = '';
-            noBucket.style.display = 'flex';
+            noBucket.style.display = 'block';
             form.style.display = 'none';
             msg.innerHTML = '';
+            bmLoadInlineBuckets();
         }
+    }
+
+    function bmLoadInlineBuckets() {
+        const d = document.getElementById('bmInlineBucketList');
+        d.innerHTML = '<div class="text-muted text-center py-2"><div class="spinner-border spinner-border-sm"></div> Loading...</div>';
+        fetch('/api/manager/list-buckets', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(_bmCreds()) })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { d.innerHTML = `<div class="alert alert-danger py-2" style="font-size:13px;">❌ ${data.error}</div>`; return; }
+            if (!data.buckets.length) { d.innerHTML = '<div class="text-muted text-center py-2" style="font-size:13px;">No buckets found.</div>'; return; }
+            d.innerHTML = '<table class="table table-sm table-hover" style="font-size:13px;margin-bottom:0;">' +
+                '<thead><tr><th>Bucket</th><th>Created</th><th></th></tr></thead><tbody>' +
+                data.buckets.map(b => `<tr>
+                    <td><strong>${b.name}</strong></td>
+                    <td style="color:#888;">${new Date(b.created).toLocaleString()}</td>
+                    <td><button class="btn btn-outline-primary btn-sm" onclick="bmBrowseBucket('${b.name}')">📂 Browse</button></td>
+                </tr>`).join('') +
+                '</tbody></table>';
+        })
+        .catch(e => { d.innerHTML = `<div class="alert alert-danger py-2" style="font-size:13px;">❌ ${e.message}</div>`; });
     }
 
     function bmLoadBuckets() {
