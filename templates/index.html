@@ -648,8 +648,12 @@
                     </div>
                     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
                         <strong>Your Buckets</strong>
-                        <button class="btn btn-outline-secondary btn-sm" onclick="bmLoadBuckets()">🔄 Refresh</button>
+                        <div>
+                            <button class="btn btn-outline-dark btn-sm" onclick="bmScanAllBuckets()" title="Scan every bucket for object count & size">🌐 Scan All Buckets</button>
+                            <button class="btn btn-outline-secondary btn-sm ms-1" onclick="bmLoadBuckets()">🔄 Refresh</button>
+                        </div>
                     </div>
+                    <div id="bmAllStatsSummary" style="display:none;margin-bottom:16px;"></div>
                     <div id="bmBucketList"><div class="text-muted text-center py-3">Loading...</div></div>
                 </div>
 
@@ -1330,6 +1334,81 @@
                 <div style="margin-top:14px;font-size:13px;color:#555;">Average object size: <strong>${data.formatted_avg_size}</strong></div>`;
         })
         .catch(e => { c.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
+    }
+
+    function _fmtBytes(bytes) {
+        const units = ['B','KB','MB','GB','TB'];
+        let i = 0;
+        while (bytes >= 1024 && i < units.length - 1) { bytes /= 1024; i++; }
+        return bytes.toFixed(2) + ' ' + units[i];
+    }
+
+    async function bmScanAllBuckets() {
+        const summary = document.getElementById('bmAllStatsSummary');
+        summary.style.display = 'block';
+        summary.innerHTML = '<div class="text-muted"><div class="spinner-border spinner-border-sm"></div> Fetching bucket list...</div>';
+
+        let buckets;
+        try {
+            const r = await fetch('/api/manager/list-buckets', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(_bmCreds()) });
+            const data = await r.json();
+            if (data.error) { summary.innerHTML = `<div class="alert alert-danger">❌ ${data.error}</div>`; return; }
+            buckets = data.buckets;
+        } catch (e) {
+            summary.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`;
+            return;
+        }
+
+        if (!buckets.length) { summary.innerHTML = '<div class="text-muted">No buckets found.</div>'; return; }
+
+        const rows = [];
+        let grandObjects = 0, grandBytes = 0, failedCount = 0;
+
+        for (let i = 0; i < buckets.length; i++) {
+            const b = buckets[i];
+            summary.innerHTML = `<div class="text-muted" style="font-size:13px;"><div class="spinner-border spinner-border-sm"></div> Scanning bucket ${i+1}/${buckets.length}: <strong>${b.name}</strong>...</div>`;
+            try {
+                const r = await fetch('/api/bucket-stats', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ..._bmCreds(), bucket_name: b.name }) });
+                const data = await r.json();
+                if (data.error) {
+                    rows.push({ name: b.name, error: data.error });
+                    failedCount++;
+                } else {
+                    rows.push({ name: b.name, count: data.object_count, bytes: data.total_size_bytes, formatted: data.formatted_size });
+                    grandObjects += data.object_count;
+                    grandBytes += data.total_size_bytes;
+                }
+            } catch (e) {
+                rows.push({ name: b.name, error: e.message });
+                failedCount++;
+            }
+        }
+
+        let html = `
+            <div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:16px;margin-bottom:14px;">
+                <div style="font-weight:700;color:#3730a3;margin-bottom:10px;">🌐 All Buckets Summary (${buckets.length} bucket${buckets.length!==1?'s':''})</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+                    <div style="background:white;border:1px solid #c7d2fe;border-radius:8px;padding:14px;text-align:center;">
+                        <div style="font-size:1.6rem;font-weight:700;color:#1e293b;">${grandObjects.toLocaleString()}</div>
+                        <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-top:4px;">Total Objects (All Buckets)</div>
+                    </div>
+                    <div style="background:white;border:1px solid #c7d2fe;border-radius:8px;padding:14px;text-align:center;">
+                        <div style="font-size:1.6rem;font-weight:700;color:#1e293b;">${_fmtBytes(grandBytes)}</div>
+                        <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-top:4px;">Total Size (All Buckets)</div>
+                    </div>
+                </div>
+                ${failedCount > 0 ? `<div style="margin-top:10px;font-size:12px;color:#b45309;">⚠ ${failedCount} bucket(s) failed to scan — see rows below.</div>` : ''}
+            </div>
+            <table class="table table-sm table-hover" style="font-size:13px;">
+                <thead><tr><th>Bucket</th><th>Objects</th><th>Size</th></tr></thead>
+                <tbody>` +
+            rows.map(row => row.error
+                ? `<tr><td><strong>${row.name}</strong></td><td colspan="2" style="color:#dc2626;">❌ ${row.error}</td></tr>`
+                : `<tr><td><strong>${row.name}</strong></td><td>${row.count.toLocaleString()}</td><td>${row.formatted}</td></tr>`
+            ).join('') +
+            `</tbody></table>`;
+
+        summary.innerHTML = html;
     }
 
     function bmCreateBucket() {
