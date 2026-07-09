@@ -662,6 +662,7 @@
                             <span style="color:#888;">Select a bucket first</span>
                         </span>
                         <button id="bmChangeBucketBtn" class="btn btn-outline-primary btn-sm" style="display:none;white-space:nowrap;" onclick="bmResetBucket()">🔀 Change Bucket</button>
+                        <button id="bmStatsBtn" class="btn btn-outline-secondary btn-sm" style="display:none;white-space:nowrap;" onclick="bmShowBucketStats(bmCurrentBucket)" title="Object count & total size for this bucket">📊 Stats</button>
                         <button class="btn btn-outline-secondary btn-sm" onclick="bmNavigate(bmCurrentBucket, bmCurrentPrefix)" title="Refresh">🔄</button>
                     </div>
                     <!-- Create Folder -->
@@ -750,6 +751,26 @@
                 <div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div> Checking...
             </div>
             <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- ═══════════ BUCKET STATS MODAL ═══════════ -->
+<div class="modal fade" id="bucketStatsModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header" style="background:linear-gradient(135deg,#1e293b 0%,#334155 100%);color:white;">
+                <h5 class="modal-title">📊 Bucket Stats</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="bucketStatsContent">
+                <div class="spinner-border spinner-border-sm" role="status"></div> Scanning bucket...
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-primary" onclick="bmShowBucketStats(bmStatsCurrentBucket)">🔄 Re-scan</button>
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
@@ -1171,6 +1192,7 @@
     let bmCurrentBucket = '';
     let bmCurrentPrefix = '';
     let bmSelectedKeys = new Set();
+    let bmStatsCurrentBucket = '';
 
     function _bmCreds() {
         return {
@@ -1203,18 +1225,21 @@
         const form     = document.getElementById('bmFolderForm');
         const msg      = document.getElementById('bmCreateFolderMsg');
         const changeBtn = document.getElementById('bmChangeBucketBtn');
+        const statsBtn  = document.getElementById('bmStatsBtn');
         if (bmCurrentBucket) {
             const loc = bmCurrentPrefix ? `${bmCurrentBucket}/${bmCurrentPrefix}` : bmCurrentBucket;
             ctx.textContent = `→ ${loc}`;
             noBucket.style.display = 'none';
             form.style.display = 'flex';
             changeBtn.style.display = 'inline-block';
+            statsBtn.style.display = 'inline-block';
         } else {
             ctx.textContent = '';
             noBucket.style.display = 'block';
             form.style.display = 'none';
             msg.innerHTML = '';
             changeBtn.style.display = 'none';
+            statsBtn.style.display = 'none';
             bmLoadInlineBuckets();
         }
     }
@@ -1243,7 +1268,10 @@
                 data.buckets.map(b => `<tr>
                     <td><strong>${b.name}</strong></td>
                     <td style="color:#888;">${new Date(b.created).toLocaleString()}</td>
-                    <td><button class="btn btn-outline-primary btn-sm" onclick="bmBrowseBucket('${b.name}')">📂 Browse</button></td>
+                    <td style="white-space:nowrap;">
+                        <button class="btn btn-outline-primary btn-sm" onclick="bmBrowseBucket('${b.name}')">📂 Browse</button>
+                        <button class="btn btn-outline-secondary btn-sm ms-1" onclick="bmShowBucketStats('${b.name}')" title="Object count & total size">📊 Stats</button>
+                    </td>
                 </tr>`).join('') +
                 '</tbody></table>';
         })
@@ -1266,6 +1294,7 @@
                     <td style="color:#888;">${new Date(b.created).toLocaleString()}</td>
                     <td style="white-space:nowrap;">
                         <button class="btn btn-outline-primary btn-sm" onclick="bmBrowseBucket('${b.name}')">📂 Browse</button>
+                        <button class="btn btn-outline-secondary btn-sm ms-1" onclick="bmShowBucketStats('${b.name}')" title="Object count & total size">📊 Stats</button>
                         <button class="btn btn-outline-warning btn-sm ms-1" onclick="bmEmptyBucket('${b.name}', false)" title="Delete all objects inside (keep bucket)">🧹 Empty</button>
                         <button class="btn btn-outline-danger btn-sm ms-1" onclick="bmDeleteBucket('${b.name}')" title="Delete bucket (must be empty)">🗑 Delete</button>
                     </td>
@@ -1273,6 +1302,34 @@
                 `</tbody></table>`;
         })
         .catch(e => { d.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
+    }
+
+    function bmShowBucketStats(bucket) {
+        if (!bucket) { alert('No bucket selected.'); return; }
+        bmStatsCurrentBucket = bucket;
+        const c = document.getElementById('bucketStatsContent');
+        c.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Scanning bucket — this may take a while for large buckets...';
+        new bootstrap.Modal(document.getElementById('bucketStatsModal')).show();
+        fetch('/api/bucket-stats', { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ ..._bmCreds(), bucket_name: bucket }) })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { c.innerHTML = `<div class="alert alert-danger">❌ ${data.error}</div>`; return; }
+            c.innerHTML = `
+                <p style="color:#555;font-size:13px;margin-bottom:16px;">Bucket: <strong>${data.bucket_name}</strong> — includes objects in all folders and subfolders.</p>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+                    <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:16px;text-align:center;">
+                        <div style="font-size:1.7rem;font-weight:700;color:#1e293b;">${data.object_count.toLocaleString()}</div>
+                        <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-top:4px;">Total Objects</div>
+                    </div>
+                    <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:16px;text-align:center;">
+                        <div style="font-size:1.7rem;font-weight:700;color:#1e293b;">${data.formatted_size}</div>
+                        <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-top:4px;">Total Size</div>
+                    </div>
+                </div>
+                <div style="margin-top:14px;font-size:13px;color:#555;">Average object size: <strong>${data.formatted_avg_size}</strong></div>`;
+        })
+        .catch(e => { c.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
     }
 
     function bmCreateBucket() {

@@ -106,28 +106,21 @@ def create_s3_client(endpoint_url, access_key, secret_key, region='default'):
     return boto3.client('s3', **kwargs)
 
 
-def capture_bucket_stats(s3_client, bucket_name, timeout_seconds=10):
-    """Capture bucket statistics at a point in time (with pagination and timeout)."""
+def capture_bucket_stats(s3_client, bucket_name):
+    """Capture bucket statistics at a point in time (paginated, recurses through all folders).
+
+    Relies on the S3 client's connect/read timeouts (set in create_s3_client) to bound
+    hangs — signal.alarm cannot be used here since Flask runs with threaded=True and
+    SIGALRM only works on the main interpreter thread.
+    """
     try:
-        import signal
+        objects = []
+        paginator = s3_client.get_paginator('list_objects_v2')
+        pages = paginator.paginate(Bucket=bucket_name)
 
-        def timeout_handler(signum, frame):
-            raise TimeoutError(f"Bucket stats capture exceeded {timeout_seconds} seconds")
-
-        # Set timeout to prevent hanging on large buckets
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(timeout_seconds)
-
-        try:
-            objects = []
-            paginator = s3_client.get_paginator('list_objects_v2')
-            pages = paginator.paginate(Bucket=bucket_name)
-
-            for page in pages:
-                if 'Contents' in page:
-                    objects.extend(page['Contents'])
-        finally:
-            signal.alarm(0)  # Cancel the alarm
+        for page in pages:
+            if 'Contents' in page:
+                objects.extend(page['Contents'])
 
         if not objects:
             return {
@@ -940,75 +933,52 @@ def check_retention_support():
         return jsonify({'error': str(e)}), 500
 
 
+def _format_bytes(bytes_val):
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if bytes_val < 1024:
+            return f"{bytes_val:.2f} {unit}"
+        bytes_val /= 1024
+    return f"{bytes_val:.2f} TB"
+
+
 @app.route('/api/bucket-stats', methods=['POST'])
 def get_bucket_stats():
-    """Get statistics for a specific S3 bucket."""
+    """Get object count + total size for a bucket (paginated — recurses through all folders)."""
     try:
         data = request.json
         bucket_name = data.get('bucket_name', '').strip()
         endpoint_url = data.get('endpoint_url', '').strip()
         access_key = data.get('access_key', '').strip()
         secret_key = data.get('secret_key', '').strip()
+        region = data.get('region', 'us-east-1')
 
-        if not all([bucket_name, endpoint_url, access_key, secret_key]):
+        if not all([bucket_name, access_key, secret_key]):
             return jsonify({'error': 'Missing required fields'}), 400
 
-        # Create S3 client
         try:
-            s3_client = create_s3_client(endpoint_url, access_key, secret_key)
+            s3_client = create_s3_client(endpoint_url, access_key, secret_key, region)
             s3_client.head_bucket(Bucket=bucket_name)
         except Exception as e:
             logger.error(f"Failed to connect to S3 bucket: {e}")
             return jsonify({'error': f'Cannot access bucket: {str(e)}'}), 400
 
-        # Get bucket stats
-        try:
-            response = s3_client.list_objects_v2(Bucket=bucket_name)
+        stats = capture_bucket_stats(s3_client, bucket_name)
+        if stats is None:
+            return jsonify({'error': 'Error retrieving bucket stats'}), 500
 
-            if 'Contents' not in response:
-                # Bucket is empty
-                return jsonify({
-                    'bucket_name': bucket_name,
-                    'object_count': 0,
-                    'total_size_bytes': 0,
-                    'total_size_mb': 0,
-                    'total_size_gb': 0,
-                    'average_size_mb': 0,
-                    'formatted_size': '0 B',
-                    'last_modified': 'N/A'
-                })
+        total_size_bytes = stats['total_size_bytes']
+        average_size = stats['average_size_bytes']
 
-            objects = response['Contents']
-            object_count = len(objects)
-            total_size_bytes = sum(obj['Size'] for obj in objects)
-            average_size = total_size_bytes / object_count if object_count > 0 else 0
-
-            # Format size
-            def format_size(bytes_val):
-                for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-                    if bytes_val < 1024:
-                        return f"{bytes_val:.2f} {unit}"
-                    bytes_val /= 1024
-                return f"{bytes_val:.2f} TB"
-
-            # Get most recent object
-            last_modified = max(obj['LastModified'] for obj in objects).isoformat() if objects else 'N/A'
-
-            return jsonify({
-                'bucket_name': bucket_name,
-                'object_count': object_count,
-                'total_size_bytes': total_size_bytes,
-                'total_size_mb': round(total_size_bytes / (1024 * 1024), 2),
-                'total_size_gb': round(total_size_bytes / (1024 * 1024 * 1024), 2),
-                'average_size_mb': round(average_size / (1024 * 1024), 2),
-                'formatted_size': format_size(total_size_bytes),
-                'last_modified': last_modified,
-                'formatted_avg_size': format_size(average_size)
-            })
-
-        except Exception as e:
-            logger.error(f"Error getting bucket stats: {e}")
-            return jsonify({'error': f'Error retrieving bucket stats: {str(e)}'}), 500
+        return jsonify({
+            'bucket_name': bucket_name,
+            'object_count': stats['object_count'],
+            'total_size_bytes': total_size_bytes,
+            'total_size_mb': round(total_size_bytes / (1024 * 1024), 2),
+            'total_size_gb': round(total_size_bytes / (1024 * 1024 * 1024), 2),
+            'average_size_mb': round(average_size / (1024 * 1024), 2),
+            'formatted_size': _format_bytes(total_size_bytes),
+            'formatted_avg_size': _format_bytes(average_size),
+        })
 
     except Exception as e:
         logger.error(f"Error in bucket-stats endpoint: {e}")
