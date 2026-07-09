@@ -231,6 +231,97 @@ def manager_delete_bucket():
         return jsonify({'error': str(e)}), 500
 
 
+CANNED_ACLS = {'private', 'public-read', 'public-read-write', 'authenticated-read'}
+ACL_GROUP_URIS = {
+    'AllUsers': 'http://acs.amazonaws.com/groups/global/AllUsers',
+    'AuthenticatedUsers': 'http://acs.amazonaws.com/groups/global/AuthenticatedUsers',
+}
+
+
+@app.route('/api/manager/get-bucket-acl', methods=['POST'])
+def manager_get_bucket_acl():
+    """Read the current ACL (owner + grants) for a bucket."""
+    try:
+        data = request.json
+        s3, bucket = _creds_from_request(data)
+        if not bucket:
+            return jsonify({'error': 'bucket_name is required'}), 400
+
+        resp = s3.get_bucket_acl(Bucket=bucket)
+        owner = resp.get('Owner', {})
+        grants = []
+        for g in resp.get('Grants', []):
+            grantee = g.get('Grantee', {})
+            grants.append({
+                'type': grantee.get('Type'),
+                'id': grantee.get('ID'),
+                'uri': grantee.get('URI'),
+                'email': grantee.get('EmailAddress'),
+                'display_name': grantee.get('DisplayName'),
+                'permission': g.get('Permission'),
+            })
+        return jsonify({'bucket': bucket, 'owner': owner, 'grants': grants})
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg  = e.response['Error'].get('Message', str(e))
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"get-bucket-acl error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/manager/put-bucket-acl', methods=['POST'])
+def manager_put_bucket_acl():
+    """Apply a canned ACL, or a full custom grant list, to a bucket.
+
+    Two mutually exclusive modes:
+      - canned_acl: one of CANNED_ACLS — simplest path, single s3:PutBucketAcl call.
+      - owner + grants: full replacement grant list (S3 ACL PUT always replaces,
+        never merges — the frontend fetches the current ACL, edits it locally,
+        then sends the complete desired list back here).
+    """
+    try:
+        data = request.json
+        s3, bucket = _creds_from_request(data)
+        if not bucket:
+            return jsonify({'error': 'bucket_name is required'}), 400
+
+        canned = (data.get('canned_acl') or '').strip()
+        if canned:
+            if canned not in CANNED_ACLS:
+                return jsonify({'error': f'Invalid canned ACL. Must be one of: {", ".join(sorted(CANNED_ACLS))}'}), 400
+            s3.put_bucket_acl(Bucket=bucket, ACL=canned)
+            logger.info(f"Applied canned ACL '{canned}' to bucket {bucket}")
+            return jsonify({'status': 'applied', 'bucket': bucket, 'canned_acl': canned})
+
+        owner = data.get('owner')
+        grants_in = data.get('grants', [])
+        if not owner or not grants_in:
+            return jsonify({'error': 'Either canned_acl, or owner + grants, are required'}), 400
+
+        boto_grants = []
+        for g in grants_in:
+            grantee = {'Type': g.get('type')}
+            if g.get('type') == 'CanonicalUser':
+                grantee['ID'] = g.get('id', '')
+            elif g.get('type') == 'Group':
+                grantee['URI'] = g.get('uri', '')
+            elif g.get('type') == 'AmazonCustomerByEmail':
+                grantee['EmailAddress'] = g.get('email', '')
+            boto_grants.append({'Grantee': grantee, 'Permission': g.get('permission')})
+
+        s3.put_bucket_acl(Bucket=bucket, AccessControlPolicy={'Owner': owner, 'Grants': boto_grants})
+        logger.info(f"Applied {len(boto_grants)} custom ACL grant(s) to bucket {bucket}")
+        return jsonify({'status': 'applied', 'bucket': bucket, 'grant_count': len(boto_grants)})
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg  = e.response['Error'].get('Message', str(e))
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"put-bucket-acl error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/manager/list-objects', methods=['POST'])
 def manager_list_objects():
     """List objects and sub-folders at a given prefix inside a bucket."""

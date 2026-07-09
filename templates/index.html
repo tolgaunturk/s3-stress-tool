@@ -667,6 +667,7 @@
                         </span>
                         <button id="bmChangeBucketBtn" class="btn btn-outline-primary btn-sm" style="display:none;white-space:nowrap;" onclick="bmResetBucket()">🔀 Change Bucket</button>
                         <button id="bmStatsBtn" class="btn btn-outline-secondary btn-sm" style="display:none;white-space:nowrap;" onclick="bmShowBucketStats(bmCurrentBucket)" title="Object count & total size for this bucket">📊 Stats</button>
+                        <button id="bmAclBtn" class="btn btn-outline-secondary btn-sm" style="display:none;white-space:nowrap;" onclick="bmOpenAclManager(bmCurrentBucket)" title="View/edit ACL for this bucket">🔐 ACL</button>
                         <button class="btn btn-outline-secondary btn-sm" onclick="bmNavigate(bmCurrentBucket, bmCurrentPrefix)" title="Refresh">🔄</button>
                     </div>
                     <!-- Create Folder -->
@@ -737,6 +738,25 @@
                     <button type="button" class="btn btn-primary" onclick="policyProbe()">🔄 Re-run</button>
                     <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
                 </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- ═══════════ BUCKET ACL MODAL ═══════════ -->
+<div class="modal fade" id="bucketAclModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header" style="background:linear-gradient(135deg,#7c2d12 0%,#c2410c 100%);color:white;">
+                <h5 class="modal-title">🔐 Bucket ACL — <span id="bmAclBucketName"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="bmAclContent">
+                <div class="spinner-border spinner-border-sm"></div> Loading ACL...
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
     </div>
@@ -1197,6 +1217,9 @@
     let bmCurrentPrefix = '';
     let bmSelectedKeys = new Set();
     let bmStatsCurrentBucket = '';
+    let bmAclCurrentBucket = '';
+    let bmAclOwner = null;
+    let bmAclGrants = [];
 
     function _bmCreds() {
         return {
@@ -1230,6 +1253,7 @@
         const msg      = document.getElementById('bmCreateFolderMsg');
         const changeBtn = document.getElementById('bmChangeBucketBtn');
         const statsBtn  = document.getElementById('bmStatsBtn');
+        const aclBtn    = document.getElementById('bmAclBtn');
         if (bmCurrentBucket) {
             const loc = bmCurrentPrefix ? `${bmCurrentBucket}/${bmCurrentPrefix}` : bmCurrentBucket;
             ctx.textContent = `→ ${loc}`;
@@ -1237,6 +1261,7 @@
             form.style.display = 'flex';
             changeBtn.style.display = 'inline-block';
             statsBtn.style.display = 'inline-block';
+            aclBtn.style.display = 'inline-block';
         } else {
             ctx.textContent = '';
             noBucket.style.display = 'block';
@@ -1244,6 +1269,7 @@
             msg.innerHTML = '';
             changeBtn.style.display = 'none';
             statsBtn.style.display = 'none';
+            aclBtn.style.display = 'none';
             bmLoadInlineBuckets();
         }
     }
@@ -1275,6 +1301,7 @@
                     <td style="white-space:nowrap;">
                         <button class="btn btn-outline-primary btn-sm" onclick="bmBrowseBucket('${b.name}')">📂 Browse</button>
                         <button class="btn btn-outline-secondary btn-sm ms-1" onclick="bmShowBucketStats('${b.name}')" title="Object count & total size">📊 Stats</button>
+                        <button class="btn btn-outline-secondary btn-sm ms-1" onclick="bmOpenAclManager('${b.name}')" title="View/edit bucket ACL">🔐 ACL</button>
                     </td>
                 </tr>`).join('') +
                 '</tbody></table>';
@@ -1299,6 +1326,7 @@
                     <td style="white-space:nowrap;">
                         <button class="btn btn-outline-primary btn-sm" onclick="bmBrowseBucket('${b.name}')">📂 Browse</button>
                         <button class="btn btn-outline-secondary btn-sm ms-1" onclick="bmShowBucketStats('${b.name}')" title="Object count & total size">📊 Stats</button>
+                        <button class="btn btn-outline-secondary btn-sm ms-1" onclick="bmOpenAclManager('${b.name}')" title="View/edit bucket ACL">🔐 ACL</button>
                         <button class="btn btn-outline-warning btn-sm ms-1" onclick="bmEmptyBucket('${b.name}', false)" title="Delete all objects inside (keep bucket)">🧹 Empty</button>
                         <button class="btn btn-outline-danger btn-sm ms-1" onclick="bmDeleteBucket('${b.name}')" title="Delete bucket (must be empty)">🗑 Delete</button>
                     </td>
@@ -1409,6 +1437,179 @@
             `</tbody></table>`;
 
         summary.innerHTML = html;
+    }
+
+    // ── Bucket ACL Manager ───────────────────────────────────────────────────
+    function bmOpenAclManager(bucket) {
+        if (!bucket) { alert('No bucket selected.'); return; }
+        bmAclCurrentBucket = bucket;
+        document.getElementById('bmAclBucketName').textContent = bucket;
+        new bootstrap.Modal(document.getElementById('bucketAclModal')).show();
+        bmLoadAcl();
+    }
+
+    function bmLoadAcl() {
+        const c = document.getElementById('bmAclContent');
+        c.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading ACL...';
+        fetch('/api/manager/get-bucket-acl', { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ ..._bmCreds(), bucket_name: bmAclCurrentBucket }) })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { c.innerHTML = `<div class="alert alert-danger">❌ ${data.error}</div>`; return; }
+            bmAclOwner = data.owner;
+            bmAclGrants = data.grants;
+            bmRenderAclPanel();
+        })
+        .catch(e => { c.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
+    }
+
+    function bmAclPermBadge(p) {
+        const colors = {
+            'FULL_CONTROL': 'background:#f8d7da;color:#721c24;',
+            'WRITE': 'background:#fff3cd;color:#856404;',
+            'WRITE_ACP': 'background:#fff3cd;color:#856404;',
+            'READ': 'background:#d4edda;color:#155724;',
+            'READ_ACP': 'background:#d4edda;color:#155724;',
+        };
+        return `<span style="padding:2px 9px;border-radius:20px;font-weight:600;font-size:11px;${colors[p]||'background:#e2e3e5;color:#383d41;'}">${p}</span>`;
+    }
+
+    function bmAclGranteeLabel(g) {
+        if (g.type === 'CanonicalUser') {
+            return `👤 ${g.display_name || g.id || '(unknown)'}<div style="font-size:11px;color:#888;">${g.id||''}</div>`;
+        }
+        if (g.type === 'Group') {
+            if ((g.uri||'').includes('AllUsers')) return '🌐 Everyone (Public)';
+            if ((g.uri||'').includes('AuthenticatedUsers')) return '🔑 Any Authenticated User';
+            return `👥 Group: ${g.uri||''}`;
+        }
+        if (g.type === 'AmazonCustomerByEmail') return `✉️ ${g.email||''}`;
+        return g.type || 'Unknown';
+    }
+
+    function bmRenderAclPanel() {
+        const c = document.getElementById('bmAclContent');
+        c.innerHTML = `
+            <div style="font-size:13px;color:#555;margin-bottom:12px;">Owner: <strong>${(bmAclOwner && (bmAclOwner.DisplayName || bmAclOwner.ID)) || '—'}</strong></div>
+
+            <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:14px;margin-bottom:16px;">
+                <strong style="color:#9a3412;">⚡ Quick Apply — Canned ACL</strong>
+                <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;">
+                    <select id="bmAclCannedSelect" class="form-select form-select-sm" style="max-width:280px;">
+                        <option value="private">🔒 Private — owner only</option>
+                        <option value="public-read">👁 Public Read — anyone can read</option>
+                        <option value="public-read-write">⚠️ Public Read/Write — anyone can read &amp; write</option>
+                        <option value="authenticated-read">🔑 Authenticated Read — any signed-in user can read</option>
+                    </select>
+                    <button class="btn btn-warning btn-sm" onclick="bmApplyCannedAcl()">Apply</button>
+                </div>
+                <div style="font-size:11px;color:#9a3412;margin-top:6px;">⚠ This replaces ALL existing grants on the bucket.</div>
+            </div>
+
+            <div style="font-weight:700;color:#1a237e;margin-bottom:8px;">Current Grants</div>
+            <table class="table table-sm" style="font-size:13px;">
+                <thead><tr><th>Grantee</th><th>Permission</th><th></th></tr></thead>
+                <tbody id="bmAclGrantsBody"></tbody>
+            </table>
+
+            <div style="background:#eff6ff;border:1px solid #93c5fd;border-radius:8px;padding:14px;margin-top:10px;">
+                <strong style="color:#1d4ed8;">➕ Add Grant</strong>
+                <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center;">
+                    <select id="bmAclNewType" class="form-select form-select-sm" style="max-width:230px;" onchange="bmAclToggleGranteeInput()">
+                        <option value="CanonicalUser">👤 Specific User (Canonical ID)</option>
+                        <option value="Group:AllUsers">🌐 Everyone (Public)</option>
+                        <option value="Group:AuthenticatedUsers">🔑 Any Authenticated User</option>
+                    </select>
+                    <input type="text" id="bmAclNewId" class="form-control form-control-sm" style="max-width:260px;display:inline-block;" placeholder="Canonical User ID (e.g. tenant$user for Ceph)">
+                    <select id="bmAclNewPermission" class="form-select form-select-sm" style="max-width:150px;">
+                        <option value="READ">READ</option>
+                        <option value="WRITE">WRITE</option>
+                        <option value="READ_ACP">READ_ACP</option>
+                        <option value="WRITE_ACP">WRITE_ACP</option>
+                        <option value="FULL_CONTROL">FULL_CONTROL</option>
+                    </select>
+                    <button class="btn btn-outline-primary btn-sm" onclick="bmAddAclGrant()">+ Add</button>
+                </div>
+            </div>
+
+            <div style="margin-top:14px;display:flex;gap:8px;align-items:center;">
+                <button class="btn btn-success btn-sm" onclick="bmSaveAclGrants()">💾 Save Grants</button>
+                <span id="bmAclSaveMsg" style="font-size:13px;"></span>
+            </div>`;
+        bmRenderAclGrantsRows();
+    }
+
+    function bmRenderAclGrantsRows() {
+        const body = document.getElementById('bmAclGrantsBody');
+        if (!bmAclGrants.length) { body.innerHTML = '<tr><td colspan="3" style="color:#888;">No grants.</td></tr>'; return; }
+        body.innerHTML = bmAclGrants.map((g, i) => `<tr>
+            <td>${bmAclGranteeLabel(g)}</td>
+            <td>${bmAclPermBadge(g.permission)}</td>
+            <td><button class="btn btn-outline-danger btn-sm" onclick="bmRemoveAclGrant(${i})">🗑</button></td>
+        </tr>`).join('');
+    }
+
+    function bmAclToggleGranteeInput() {
+        const type = document.getElementById('bmAclNewType').value;
+        document.getElementById('bmAclNewId').style.display = (type === 'CanonicalUser') ? 'inline-block' : 'none';
+    }
+
+    function bmAddAclGrant() {
+        const typeVal = document.getElementById('bmAclNewType').value;
+        const permission = document.getElementById('bmAclNewPermission').value;
+        let grant;
+        if (typeVal === 'CanonicalUser') {
+            const id = document.getElementById('bmAclNewId').value.trim();
+            if (!id) { alert('Canonical User ID is required.'); return; }
+            grant = { type: 'CanonicalUser', id, permission };
+        } else {
+            const uri = typeVal === 'Group:AllUsers'
+                ? 'http://acs.amazonaws.com/groups/global/AllUsers'
+                : 'http://acs.amazonaws.com/groups/global/AuthenticatedUsers';
+            grant = { type: 'Group', uri, permission };
+        }
+        bmAclGrants.push(grant);
+        bmRenderAclGrantsRows();
+        document.getElementById('bmAclNewId').value = '';
+    }
+
+    function bmRemoveAclGrant(index) {
+        bmAclGrants.splice(index, 1);
+        bmRenderAclGrantsRows();
+    }
+
+    function bmSaveAclGrants() {
+        const msg = document.getElementById('bmAclSaveMsg');
+        if (!bmAclGrants.length) { msg.innerHTML = '<span style="color:red;">⚠ At least one grant is required (use the Private canned ACL to remove all access instead).</span>'; return; }
+        msg.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Saving...';
+        fetch('/api/manager/put-bucket-acl', { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ ..._bmCreds(), bucket_name: bmAclCurrentBucket, owner: bmAclOwner, grants: bmAclGrants }) })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { msg.innerHTML = `<span style="color:red;">❌ ${data.error}</span>`; return; }
+            msg.innerHTML = `<span style="color:green;">✅ Saved ${data.grant_count} grant(s).</span>`;
+            bmLoadAcl();
+        })
+        .catch(e => { msg.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`; });
+    }
+
+    function bmApplyCannedAcl() {
+        const canned = document.getElementById('bmAclCannedSelect').value;
+        let warning = '';
+        if (canned === 'public-read-write') warning = '\n\n⚠️ WARNING: This allows ANYONE on the internet to read AND write/delete objects in this bucket!';
+        else if (canned === 'public-read') warning = '\n\n⚠️ This allows ANYONE on the internet to read objects in this bucket.';
+        if (!confirm(`Apply "${canned}" ACL to bucket "${bmAclCurrentBucket}"?\n\nThis replaces ALL existing grants.${warning}`)) return;
+
+        const c = document.getElementById('bmAclContent');
+        c.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Applying ACL...';
+        fetch('/api/manager/put-bucket-acl', { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ ..._bmCreds(), bucket_name: bmAclCurrentBucket, canned_acl: canned }) })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { c.innerHTML = `<div class="alert alert-danger">❌ ${data.error}</div>`; return; }
+            bmLoadAcl();
+        })
+        .catch(e => { c.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
     }
 
     function bmCreateBucket() {
