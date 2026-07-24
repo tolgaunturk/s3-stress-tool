@@ -1707,6 +1707,11 @@
             Folders &amp; Objects view can't see. Useful for finding storage a versioned bucket is still holding, and for purging specific
             stale versions (e.g. leaked test objects) by exact Version ID.</p>
 
+            <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 14px;margin-bottom:12px;font-size:12px;color:#9a3412;">
+                ⚠ Deleting only a <strong>DELETE MARKER</strong> restores (un-deletes) the object instead of removing it — the underlying
+                version(s) are still there. Use "☑ select all versions of this key" next to a row to select everything needed to fully purge it.
+            </div>
+
             <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
                 <input type="text" id="ovPrefixInput" class="form-control form-control-sm" style="max-width:300px;" placeholder="Prefix filter (optional)" value="${initialPrefix}">
                 <button class="btn btn-primary btn-sm" onclick="ovLoadVersions()">🔍 Load</button>
@@ -1768,7 +1773,9 @@
             const latestBadge = e.is_latest ? '<span style="color:#155724;font-weight:600;">✓ latest</span>' : '<span style="color:#888;">—</span>';
             return `<tr>
                 <td><input type="checkbox" ${checked} onchange="ovToggleEntry(${i})"></td>
-                <td style="font-family:monospace;word-break:break-all;">${e.key}</td>
+                <td style="font-family:monospace;word-break:break-all;">${e.key}<br>
+                    <button class="btn btn-link btn-sm p-0" style="font-size:11px;text-decoration:none;" onclick="ovSelectAllForKey(${i})" title="Select every version of this key — needed to fully remove it, not just this one row">☑ select all versions of this key</button>
+                </td>
                 <td style="font-family:monospace;color:#888;" title="${e.version_id}">${e.version_id.substring(0,12)}...</td>
                 <td>${latestBadge}</td>
                 <td>${typeLabel}</td>
@@ -1776,6 +1783,13 @@
                 <td style="white-space:nowrap;color:#888;">${new Date(e.last_modified).toLocaleString()}</td>
             </tr>`;
         }).join('');
+    }
+
+    function ovSelectAllForKey(i) {
+        const key = ovEntries[i].key;
+        ovEntries.forEach(e => { if (e.key === key) ovSelected.add(ovEntryId(e)); });
+        ovRenderRows();
+        ovUpdateBulkBar();
     }
 
     function ovToggleEntry(i) {
@@ -1816,10 +1830,14 @@
         .then(r => r.json())
         .then(data => {
             if (data.error) { msg.innerHTML = `<span style="color:red;">❌ ${data.error}</span>`; return; }
+            const requested = data.requested;
             const deleted = data.deleted.length;
             const errors = data.errors.length;
-            msg.innerHTML = `<span style="color:green;">✅ Deleted ${deleted} version(s).</span>` +
-                (errors ? ` <span style="color:#b45309;">⚠ ${errors} still locked/failed: ${data.errors.map(e=>e.Key).join(', ')}</span>` : '');
+            const unaccounted = requested - deleted - errors;
+            let html = `<span style="color:green;">✅ Deleted ${deleted} of ${requested} requested.</span>`;
+            if (errors) html += ` <span style="color:#b45309;">⚠ ${errors} still locked/failed: ${data.errors.map(e=>e.Key||e.key).join(', ')}</span>`;
+            if (unaccounted > 0) html += ` <span style="color:red;">❗ ${unaccounted} were not processed — please retry.</span>`;
+            msg.innerHTML = html;
             ovLoadVersions();
         })
         .catch(e => { msg.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`; });

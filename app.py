@@ -452,7 +452,8 @@ def manager_delete_object():
 
 @app.route('/api/manager/delete-objects', methods=['POST'])
 def manager_delete_objects():
-    """Bulk delete up to 1000 objects from a bucket."""
+    """Bulk delete objects from a bucket. Batches automatically in chunks of 1000 — the
+    S3 DeleteObjects hard limit — so a selection larger than that isn't silently truncated."""
     try:
         data = request.json
         keys = data.get('keys', [])
@@ -463,15 +464,24 @@ def manager_delete_objects():
         if not bucket:
             return jsonify({'error': 'bucket_name is required'}), 400
 
-        to_delete = [{'Key': k} for k in keys[:1000]]
-        resp = s3.delete_objects(
-            Bucket=bucket,
-            Delete={'Objects': to_delete, 'Quiet': False}
-        )
-        deleted = [d['Key'] for d in resp.get('Deleted', [])]
-        errors  = resp.get('Errors', [])
-        logger.info(f"Bulk deleted {len(deleted)} objects from s3://{bucket}/, {len(errors)} errors")
-        return jsonify({'status': 'done', 'deleted': deleted, 'errors': errors, 'bucket': bucket})
+        deleted = []
+        errors = []
+        for i in range(0, len(keys), 1000):
+            chunk = keys[i:i + 1000]
+            try:
+                resp = s3.delete_objects(
+                    Bucket=bucket,
+                    Delete={'Objects': [{'Key': k} for k in chunk], 'Quiet': False}
+                )
+                deleted.extend(d['Key'] for d in resp.get('Deleted', []))
+                errors.extend(resp.get('Errors', []))
+            except ClientError as e:
+                code = e.response['Error']['Code']
+                msg = e.response['Error'].get('Message', str(e))
+                errors.extend({'Key': k, 'Code': code, 'Message': msg} for k in chunk)
+
+        logger.info(f"Bulk deleted {len(deleted)} objects from s3://{bucket}/, {len(errors)} errors (requested {len(keys)})")
+        return jsonify({'status': 'done', 'deleted': deleted, 'errors': errors, 'bucket': bucket, 'requested': len(keys)})
     except ClientError as e:
         code = e.response['Error']['Code']
         msg  = e.response['Error'].get('Message', str(e))
@@ -535,7 +545,10 @@ def manager_delete_object_versions():
     """Bulk delete specific object versions (or delete markers) by Key+VersionId.
 
     This is the only way to actually purge noncurrent versions — the regular delete/delete-objects
-    endpoints only ever target the current version of a key.
+    endpoints only ever target the current version of a key. Batches automatically in chunks of
+    1000 (the S3 DeleteObjects hard limit) — a selection larger than that used to be silently
+    truncated with no indication, which is exactly why deleted items could still show up in a
+    follow-up listing (they were never actually sent to S3 at all).
     """
     try:
         data = request.json
@@ -546,12 +559,24 @@ def manager_delete_object_versions():
         if not versions:
             return jsonify({'error': 'versions array is required'}), 400
 
-        to_delete = [{'Key': v['key'], 'VersionId': v['version_id']} for v in versions[:1000]]
-        resp = s3.delete_objects(Bucket=bucket, Delete={'Objects': to_delete, 'Quiet': False})
-        deleted = [{'key': d['Key'], 'version_id': d.get('VersionId')} for d in resp.get('Deleted', [])]
-        errors = resp.get('Errors', [])
-        logger.info(f"Bulk deleted {len(deleted)} object version(s) from s3://{bucket}/, {len(errors)} errors")
-        return jsonify({'status': 'done', 'deleted': deleted, 'errors': errors, 'bucket': bucket})
+        deleted = []
+        errors = []
+        for i in range(0, len(versions), 1000):
+            chunk = versions[i:i + 1000]
+            to_delete = [{'Key': v['key'], 'VersionId': v['version_id']} for v in chunk]
+            try:
+                resp = s3.delete_objects(Bucket=bucket, Delete={'Objects': to_delete, 'Quiet': False})
+                deleted.extend({'key': d['Key'], 'version_id': d.get('VersionId')} for d in resp.get('Deleted', []))
+                errors.extend(resp.get('Errors', []))
+            except ClientError as e:
+                # Don't lose results from earlier successful chunks — record this chunk as
+                # failed and keep going with the rest of the selection.
+                code = e.response['Error']['Code']
+                msg = e.response['Error'].get('Message', str(e))
+                errors.extend({'Key': v['key'], 'VersionId': v['version_id'], 'Code': code, 'Message': msg} for v in chunk)
+
+        logger.info(f"Bulk deleted {len(deleted)} object version(s) from s3://{bucket}/, {len(errors)} errors (requested {len(versions)})")
+        return jsonify({'status': 'done', 'deleted': deleted, 'errors': errors, 'bucket': bucket, 'requested': len(versions)})
     except ClientError as e:
         code = e.response['Error']['Code']
         msg = e.response['Error'].get('Message', str(e))
