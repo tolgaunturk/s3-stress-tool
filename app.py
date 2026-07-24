@@ -10,6 +10,7 @@ import logging
 import os
 import json
 import uuid
+import time
 from pathlib import Path
 from io import StringIO, BytesIO
 from datetime import datetime, timezone, timedelta
@@ -983,6 +984,67 @@ def iam_delete_test_user():
         return jsonify({'error': f'{code}: {msg}'}), 400
     except Exception as e:
         logger.error(f"IAM delete-user error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+IMMUTABILITY_TEST_PREFIX = '_immutability-audit-test/'
+DELETE_BLOCKED_INDICATORS = ('objectlocked', 'accessdenied', 'locked', 'methodnotallowed', 'invalidrequest', '403')
+
+
+@app.route('/api/immutability/test-delete', methods=['POST'])
+def immutability_test_delete():
+    """One audit round: write a small test object, then immediately attempt to delete it.
+
+    Provider-claimed "immutable" buckets have been observed to block deletes on the first
+    try but allow them on a later try — this endpoint exists to catch and log that
+    inconsistency with a timestamp + the raw error code/message, so it can be exported as
+    evidence. Unlike the retention_worm_verify scenario, this does NOT set any retention
+    lock itself — it only observes whatever the bucket already enforces.
+    """
+    try:
+        data = request.json
+        s3, bucket = _creds_from_request(data)
+        if not bucket:
+            return jsonify({'error': 'bucket_name is required'}), 400
+
+        key = f"{IMMUTABILITY_TEST_PREFIX}{uuid.uuid4().hex}.txt"
+        body = f"immutability audit test - {datetime.now(timezone.utc).isoformat()}".encode()
+        round_timestamp = datetime.now(timezone.utc).isoformat()
+
+        put_start = time.time()
+        try:
+            s3.put_object(Bucket=bucket, Key=key, Body=body)
+            put_result = {'status': 'SUCCESS', 'elapsed_ms': round((time.time() - put_start) * 1000, 1), 'error': None}
+        except ClientError as e:
+            code = e.response['Error']['Code']
+            msg = e.response['Error'].get('Message', str(e))
+            return jsonify({
+                'key': key, 'timestamp': round_timestamp,
+                'put': {'status': 'ERROR', 'elapsed_ms': round((time.time() - put_start) * 1000, 1), 'error': f'{code}: {msg}'},
+                'delete': {'status': 'SKIPPED', 'elapsed_ms': 0, 'error_code': None, 'error_message': 'Write failed — delete not attempted'},
+            })
+        except Exception as e:
+            return jsonify({
+                'key': key, 'timestamp': round_timestamp,
+                'put': {'status': 'ERROR', 'elapsed_ms': round((time.time() - put_start) * 1000, 1), 'error': str(e)},
+                'delete': {'status': 'SKIPPED', 'elapsed_ms': 0, 'error_code': None, 'error_message': 'Write failed — delete not attempted'},
+            })
+
+        delete_start = time.time()
+        try:
+            s3.delete_object(Bucket=bucket, Key=key)
+            delete_result = {'status': 'ALLOWED', 'elapsed_ms': round((time.time() - delete_start) * 1000, 1), 'error_code': None, 'error_message': None}
+        except ClientError as e:
+            code = e.response['Error']['Code']
+            msg = e.response['Error'].get('Message', str(e))
+            status = 'BLOCKED' if any(ind in f"{code} {msg}".lower() for ind in DELETE_BLOCKED_INDICATORS) else 'ERROR'
+            delete_result = {'status': status, 'elapsed_ms': round((time.time() - delete_start) * 1000, 1), 'error_code': code, 'error_message': msg}
+        except Exception as e:
+            delete_result = {'status': 'ERROR', 'elapsed_ms': round((time.time() - delete_start) * 1000, 1), 'error_code': None, 'error_message': str(e)}
+
+        return jsonify({'key': key, 'timestamp': round_timestamp, 'put': put_result, 'delete': delete_result})
+    except Exception as e:
+        logger.error(f"immutability-test-delete error: {e}")
         return jsonify({'error': str(e)}), 500
 
 

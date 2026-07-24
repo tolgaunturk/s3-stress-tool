@@ -442,6 +442,7 @@
             <button class="tool-btn" onclick="policyProbe()">🔍 Policy</button>
             <button class="tool-btn" onclick="checkRetentionLock()">🔒 Lock</button>
             <button class="tool-btn" onclick="openIAMManager()">👤 IAM Users</button>
+            <button class="tool-btn" onclick="openImmutabilityAudit()">🔬 Immutability Audit</button>
             <a href="/reports" class="tool-btn">📊 Reports</a>
             <a href="/scenarios" class="tool-btn">📋 Scenarios</a>
             <a href="/custom" class="tool-btn">⚙️ Custom</a>
@@ -795,6 +796,23 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-primary" onclick="bmShowBucketStats(bmStatsCurrentBucket)">🔄 Re-scan</button>
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- ═══════════ IMMUTABILITY AUDIT MODAL ═══════════ -->
+<div class="modal fade" id="immutabilityAuditModal" tabindex="-1">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header" style="background:linear-gradient(135deg,#134e4a 0%,#0f766e 100%);color:white;">
+                <h5 class="modal-title">🔬 Immutability Audit — <span id="iaBucketName"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="iaContent"></div>
+            <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
         </div>
@@ -2140,6 +2158,205 @@
             }
         })
         .catch(e => { c.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
+    }
+
+    // ── Immutability Audit ───────────────────────────────────────────────────
+    let iaLog = [];
+    let iaRunning = false;
+    let iaStopRequested = false;
+
+    function _iaCreds() {
+        return {
+            endpoint_url: document.getElementById('endpointUrl').value,
+            access_key:   document.getElementById('accessKey').value,
+            secret_key:   document.getElementById('secretKey').value,
+            region:       document.getElementById('region').value,
+            bucket_name:  document.getElementById('bucketName').value,
+        };
+    }
+
+    function openImmutabilityAudit() {
+        const creds = _iaCreds();
+        if (!creds.endpoint_url || !creds.access_key || !creds.secret_key || !creds.bucket_name) {
+            alert('Please fill in all S3 configuration fields (endpoint, keys, bucket) first');
+            return;
+        }
+        document.getElementById('iaBucketName').textContent = creds.bucket_name;
+        iaLog = [];
+        iaRunning = false;
+        iaStopRequested = false;
+        new bootstrap.Modal(document.getElementById('immutabilityAuditModal')).show();
+        iaRenderPanel();
+    }
+
+    function iaRenderPanel() {
+        const c = document.getElementById('iaContent');
+        c.innerHTML = `
+            <p style="color:#555;font-size:13px;">Writes a small test object, then immediately attempts to delete it — repeated over
+            several tries. Doesn't set any retention lock itself; it only observes whatever the bucket already enforces. Useful for
+            catching inconsistent immutability (e.g. blocked on the first try, allowed later) and exporting evidence for your provider.</p>
+
+            <div style="background:#f0fdfa;border:1px solid #99f6e4;border-radius:8px;padding:14px;margin-bottom:14px;">
+                <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+                    <label style="font-size:13px;font-weight:600;">Attempts:</label>
+                    <input type="number" id="iaAttempts" class="form-control form-control-sm" style="max-width:80px;" value="5" min="1" max="50">
+                    <label style="font-size:13px;font-weight:600;">Delay between (sec):</label>
+                    <input type="number" id="iaDelay" class="form-control form-control-sm" style="max-width:80px;" value="3" min="0" max="120">
+                    <button class="btn btn-success btn-sm" id="iaRunBtn" onclick="iaRunAudit()">▶ Run Audit</button>
+                    <button class="btn btn-outline-danger btn-sm" id="iaStopBtn" onclick="iaStopAudit()" style="display:none;">⏹ Stop</button>
+                    <button class="btn btn-outline-secondary btn-sm" onclick="iaCleanupTestObjects()" title="Delete leftover test objects from previous audits">🧹 Cleanup Test Objects</button>
+                </div>
+            </div>
+
+            <div id="iaSummary"></div>
+
+            <table class="table table-sm" style="font-size:12px;">
+                <thead><tr><th>#</th><th>Timestamp</th><th>Key</th><th>Write</th><th>Delete Result</th><th>Detail</th></tr></thead>
+                <tbody id="iaLogBody"><tr><td colspan="6" style="color:#888;">No attempts yet — click Run Audit.</td></tr></tbody>
+            </table>
+
+            <div style="display:flex;gap:8px;">
+                <button class="btn btn-outline-primary btn-sm" onclick="iaExportJSON()" ${iaLog.length ? '' : 'disabled'}>📄 Export JSON</button>
+                <button class="btn btn-outline-primary btn-sm" onclick="iaExportCSV()" ${iaLog.length ? '' : 'disabled'}>📊 Export CSV</button>
+            </div>
+            <div id="iaCleanupMsg" style="margin-top:8px;font-size:13px;"></div>`;
+        iaRenderLogRows();
+        iaRenderSummary();
+    }
+
+    function iaDeleteBadge(status) {
+        const styles = {
+            'ALLOWED': 'background:#f8d7da;color:#721c24;',
+            'BLOCKED': 'background:#d4edda;color:#155724;',
+            'ERROR':   'background:#fff3cd;color:#856404;',
+            'SKIPPED': 'background:#e2e3e5;color:#383d41;',
+        };
+        const icons = { 'ALLOWED':'⚠️ ALLOWED', 'BLOCKED':'✅ BLOCKED', 'ERROR':'❗ ERROR', 'SKIPPED':'— SKIPPED' };
+        return `<span style="padding:2px 9px;border-radius:20px;font-weight:600;font-size:11px;${styles[status]||''}">${icons[status]||status}</span>`;
+    }
+
+    function iaRenderLogRows() {
+        const body = document.getElementById('iaLogBody');
+        if (!iaLog.length) { body.innerHTML = '<tr><td colspan="6" style="color:#888;">No attempts yet — click Run Audit.</td></tr>'; return; }
+        body.innerHTML = iaLog.map((r, i) => `<tr>
+            <td>${i+1}</td>
+            <td style="white-space:nowrap;">${new Date(r.timestamp).toLocaleTimeString()}</td>
+            <td style="font-family:monospace;font-size:11px;">${r.key.split('/').pop()}</td>
+            <td>${r.put.status === 'SUCCESS' ? '✅' : `❌ ${r.put.error||''}`}</td>
+            <td>${iaDeleteBadge(r.delete.status)}</td>
+            <td style="color:#888;">${r.delete.error_code ? `${r.delete.error_code}: ${r.delete.error_message||''}` : (r.delete.error_message||'')}</td>
+        </tr>`).join('');
+    }
+
+    function iaRenderSummary() {
+        const el = document.getElementById('iaSummary');
+        if (!iaLog.length) { el.innerHTML = ''; return; }
+        const blocked = iaLog.filter(r => r.delete.status === 'BLOCKED').length;
+        const allowed = iaLog.filter(r => r.delete.status === 'ALLOWED').length;
+        const errors  = iaLog.filter(r => r.delete.status === 'ERROR').length;
+        const skipped = iaLog.filter(r => r.delete.status === 'SKIPPED').length;
+        let html = `<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:12px;margin-bottom:14px;font-size:13px;">
+            <strong>${iaLog.length} attempt${iaLog.length!==1?'s':''}:</strong>
+            ✅ ${blocked} blocked (locked) &nbsp;|&nbsp; ⚠️ ${allowed} allowed (deleted) &nbsp;|&nbsp; ❗ ${errors} errors ${skipped ? `&nbsp;|&nbsp; — ${skipped} skipped` : ''}
+        </div>`;
+        if (blocked > 0 && allowed > 0) {
+            html += `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-bottom:14px;color:#991b1b;font-size:13px;">
+                ⚠️ <strong>Inconsistent enforcement detected</strong> — some delete attempts were blocked while others succeeded
+                against the same bucket. Export this log as evidence for your provider.
+            </div>`;
+        }
+        el.innerHTML = html;
+    }
+
+    async function iaRunAudit() {
+        if (iaRunning) return;
+        iaRunning = true;
+        iaStopRequested = false;
+        document.getElementById('iaRunBtn').style.display = 'none';
+        document.getElementById('iaStopBtn').style.display = 'inline-block';
+
+        const attempts = Math.max(1, Math.min(50, parseInt(document.getElementById('iaAttempts').value) || 5));
+        const delaySec = Math.max(0, Math.min(120, parseInt(document.getElementById('iaDelay').value) || 3));
+        const creds = _iaCreds();
+
+        for (let i = 0; i < attempts; i++) {
+            if (iaStopRequested) break;
+            try {
+                const r = await fetch('/api/immutability/test-delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(creds) });
+                const data = await r.json();
+                if (data.error) {
+                    iaLog.push({ timestamp: new Date().toISOString(), key: '(none)', put: {status:'ERROR', error:data.error}, delete: {status:'ERROR', error_code:null, error_message:data.error} });
+                } else {
+                    iaLog.push(data);
+                }
+            } catch (e) {
+                iaLog.push({ timestamp: new Date().toISOString(), key: '(none)', put: {status:'ERROR', error:e.message}, delete: {status:'ERROR', error_code:null, error_message:e.message} });
+            }
+            iaRenderLogRows();
+            iaRenderSummary();
+            if (i < attempts - 1 && !iaStopRequested && delaySec > 0) {
+                await new Promise(resolve => setTimeout(resolve, delaySec * 1000));
+            }
+        }
+
+        iaRunning = false;
+        document.getElementById('iaRunBtn').style.display = 'inline-block';
+        document.getElementById('iaStopBtn').style.display = 'none';
+        // Re-render footer buttons now that iaLog may be non-empty
+        document.querySelectorAll('#iaContent button[onclick^="iaExport"]').forEach(btn => btn.disabled = !iaLog.length);
+    }
+
+    function iaStopAudit() {
+        iaStopRequested = true;
+    }
+
+    function iaExportJSON() {
+        if (!iaLog.length) return;
+        const blob = new Blob([JSON.stringify(iaLog, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `immutability-audit-${document.getElementById('iaBucketName').textContent}-${Date.now()}.json`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+
+    function iaExportCSV() {
+        if (!iaLog.length) return;
+        let csv = 'Attempt,Timestamp,Key,Write Status,Delete Status,Error Code,Error Message\n';
+        iaLog.forEach((r, i) => {
+            csv += `${i+1},"${r.timestamp}","${r.key}",${r.put.status},${r.delete.status},"${r.delete.error_code||''}","${(r.delete.error_message||'').replace(/"/g,'""')}"\n`;
+        });
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `immutability-audit-${document.getElementById('iaBucketName').textContent}-${Date.now()}.csv`;
+        document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    }
+
+    function iaCleanupTestObjects() {
+        const msg = document.getElementById('iaCleanupMsg');
+        const creds = _iaCreds();
+        msg.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Finding leftover test objects...';
+        fetch('/api/manager/list-objects', { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ ...creds, prefix: '_immutability-audit-test/' }) })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { msg.innerHTML = `<span style="color:red;">❌ ${data.error}</span>`; return; }
+            const keys = (data.objects || []).map(o => o.key);
+            if (!keys.length) { msg.innerHTML = '<span style="color:green;">✅ No leftover test objects found.</span>'; return; }
+            msg.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Deleting ${keys.length} test object(s)...`;
+            fetch('/api/manager/delete-objects', { method:'POST', headers:{'Content-Type':'application/json'},
+                body: JSON.stringify({ ...creds, keys }) })
+            .then(r => r.json())
+            .then(delData => {
+                if (delData.error) { msg.innerHTML = `<span style="color:red;">❌ ${delData.error}</span>`; return; }
+                const deleted = delData.deleted.length;
+                const errors = delData.errors.length;
+                msg.innerHTML = `<span style="color:green;">✅ Deleted ${deleted} object(s).</span>` +
+                    (errors ? ` <span style="color:#b45309;">⚠ ${errors} still blocked/failed (still locked, most likely).</span>` : '');
+            })
+            .catch(e => { msg.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`; });
+        })
+        .catch(e => { msg.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`; });
     }
 </script>
 </body>
