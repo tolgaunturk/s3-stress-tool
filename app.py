@@ -481,6 +481,86 @@ def manager_delete_objects():
         return jsonify({'error': str(e)}), 500
 
 
+MAX_VERSION_LIST_ENTRIES = 2000
+
+
+@app.route('/api/manager/list-object-versions', methods=['POST'])
+def manager_list_object_versions():
+    """List all object versions + delete markers in a bucket, optionally filtered by prefix.
+
+    Unlike regular object listing (list_objects_v2), this surfaces noncurrent versions and
+    delete markers too — the storage that's invisible to the normal Folders & Objects view on
+    a versioned bucket, and the only way to find+purge specific stale versions (e.g. leaked
+    policy-probe test objects) by Key+VersionId.
+    """
+    try:
+        data = request.json
+        s3, bucket = _creds_from_request(data)
+        if not bucket:
+            return jsonify({'error': 'bucket_name is required'}), 400
+        prefix = data.get('prefix', '')
+
+        entries = []
+        truncated = False
+        paginator = s3.get_paginator('list_object_versions')
+        pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
+        for page in pages:
+            for v in page.get('Versions', []):
+                entries.append({
+                    'key': v['Key'], 'version_id': v['VersionId'], 'is_latest': v.get('IsLatest', False),
+                    'size': v.get('Size', 0), 'last_modified': v['LastModified'].isoformat(), 'type': 'version',
+                })
+            for d in page.get('DeleteMarkers', []):
+                entries.append({
+                    'key': d['Key'], 'version_id': d['VersionId'], 'is_latest': d.get('IsLatest', False),
+                    'size': 0, 'last_modified': d['LastModified'].isoformat(), 'type': 'delete_marker',
+                })
+            if len(entries) >= MAX_VERSION_LIST_ENTRIES:
+                truncated = True
+                break
+
+        entries.sort(key=lambda e: e['last_modified'], reverse=True)
+        return jsonify({'bucket': bucket, 'prefix': prefix, 'entries': entries, 'truncated': truncated})
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg = e.response['Error'].get('Message', str(e))
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"list-object-versions error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/manager/delete-object-versions', methods=['POST'])
+def manager_delete_object_versions():
+    """Bulk delete specific object versions (or delete markers) by Key+VersionId.
+
+    This is the only way to actually purge noncurrent versions — the regular delete/delete-objects
+    endpoints only ever target the current version of a key.
+    """
+    try:
+        data = request.json
+        s3, bucket = _creds_from_request(data)
+        if not bucket:
+            return jsonify({'error': 'bucket_name is required'}), 400
+        versions = data.get('versions', [])
+        if not versions:
+            return jsonify({'error': 'versions array is required'}), 400
+
+        to_delete = [{'Key': v['key'], 'VersionId': v['version_id']} for v in versions[:1000]]
+        resp = s3.delete_objects(Bucket=bucket, Delete={'Objects': to_delete, 'Quiet': False})
+        deleted = [{'key': d['Key'], 'version_id': d.get('VersionId')} for d in resp.get('Deleted', [])]
+        errors = resp.get('Errors', [])
+        logger.info(f"Bulk deleted {len(deleted)} object version(s) from s3://{bucket}/, {len(errors)} errors")
+        return jsonify({'status': 'done', 'deleted': deleted, 'errors': errors, 'bucket': bucket})
+    except ClientError as e:
+        code = e.response['Error']['Code']
+        msg = e.response['Error'].get('Message', str(e))
+        return jsonify({'error': f'{code}: {msg}'}), 400
+    except Exception as e:
+        logger.error(f"delete-object-versions error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/api/manager/empty-bucket', methods=['POST'])
 def manager_empty_bucket():
     """Delete ALL objects in a bucket across all pages (paginated).

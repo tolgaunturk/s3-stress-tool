@@ -669,6 +669,7 @@
                         <button id="bmChangeBucketBtn" class="btn btn-outline-primary btn-sm" style="display:none;white-space:nowrap;" onclick="bmResetBucket()">🔀 Change Bucket</button>
                         <button id="bmStatsBtn" class="btn btn-outline-secondary btn-sm" style="display:none;white-space:nowrap;" onclick="bmShowBucketStats(bmCurrentBucket)" title="Object count & total size for this bucket">📊 Stats</button>
                         <button id="bmAclBtn" class="btn btn-outline-secondary btn-sm" style="display:none;white-space:nowrap;" onclick="bmOpenAclManager(bmCurrentBucket)" title="View/edit ACL for this bucket">🔐 ACL</button>
+                        <button id="bmVersionsBtn" class="btn btn-outline-secondary btn-sm" style="display:none;white-space:nowrap;" onclick="bmOpenVersionsManager(bmCurrentBucket, bmCurrentPrefix)" title="Browse & purge all object versions (incl. noncurrent + delete markers)">🗂️ Versions</button>
                         <button class="btn btn-outline-secondary btn-sm" onclick="bmNavigate(bmCurrentBucket, bmCurrentPrefix)" title="Refresh">🔄</button>
                     </div>
                     <!-- Create Folder -->
@@ -812,6 +813,23 @@
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
             </div>
             <div class="modal-body" id="iaContent"></div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<!-- ═══════════ OBJECT VERSIONS MODAL ═══════════ -->
+<div class="modal fade" id="objectVersionsModal" tabindex="-1">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header" style="background:linear-gradient(135deg,#3730a3 0%,#4f46e5 100%);color:white;">
+                <h5 class="modal-title">🗂️ Object Versions — <span id="ovBucketName"></span></h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body" id="ovContent"></div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
             </div>
@@ -1238,6 +1256,9 @@
     let bmAclCurrentBucket = '';
     let bmAclOwner = null;
     let bmAclGrants = [];
+    let ovCurrentBucket = '';
+    let ovEntries = [];
+    let ovSelected = new Set();
 
     function _bmCreds() {
         return {
@@ -1272,6 +1293,7 @@
         const changeBtn = document.getElementById('bmChangeBucketBtn');
         const statsBtn  = document.getElementById('bmStatsBtn');
         const aclBtn    = document.getElementById('bmAclBtn');
+        const versionsBtn = document.getElementById('bmVersionsBtn');
         if (bmCurrentBucket) {
             const loc = bmCurrentPrefix ? `${bmCurrentBucket}/${bmCurrentPrefix}` : bmCurrentBucket;
             ctx.textContent = `→ ${loc}`;
@@ -1280,6 +1302,7 @@
             changeBtn.style.display = 'inline-block';
             statsBtn.style.display = 'inline-block';
             aclBtn.style.display = 'inline-block';
+            versionsBtn.style.display = 'inline-block';
         } else {
             ctx.textContent = '';
             noBucket.style.display = 'block';
@@ -1288,6 +1311,7 @@
             changeBtn.style.display = 'none';
             statsBtn.style.display = 'none';
             aclBtn.style.display = 'none';
+            versionsBtn.style.display = 'none';
             bmLoadInlineBuckets();
         }
     }
@@ -1320,6 +1344,7 @@
                         <button class="btn btn-outline-primary btn-sm" onclick="bmBrowseBucket('${b.name}')">📂 Browse</button>
                         <button class="btn btn-outline-secondary btn-sm ms-1" onclick="bmShowBucketStats('${b.name}')" title="Object count & total size">📊 Stats</button>
                         <button class="btn btn-outline-secondary btn-sm ms-1" onclick="bmOpenAclManager('${b.name}')" title="View/edit bucket ACL">🔐 ACL</button>
+                        <button class="btn btn-outline-secondary btn-sm ms-1" onclick="bmOpenVersionsManager('${b.name}')" title="Browse & purge all object versions">🗂️ Versions</button>
                     </td>
                 </tr>`).join('') +
                 '</tbody></table>';
@@ -1345,6 +1370,7 @@
                         <button class="btn btn-outline-primary btn-sm" onclick="bmBrowseBucket('${b.name}')">📂 Browse</button>
                         <button class="btn btn-outline-secondary btn-sm ms-1" onclick="bmShowBucketStats('${b.name}')" title="Object count & total size">📊 Stats</button>
                         <button class="btn btn-outline-secondary btn-sm ms-1" onclick="bmOpenAclManager('${b.name}')" title="View/edit bucket ACL">🔐 ACL</button>
+                        <button class="btn btn-outline-secondary btn-sm ms-1" onclick="bmOpenVersionsManager('${b.name}')" title="Browse & purge all object versions">🗂️ Versions</button>
                         <button class="btn btn-outline-warning btn-sm ms-1" onclick="bmEmptyBucket('${b.name}', false)" title="Delete all objects inside (keep bucket)">🧹 Empty</button>
                         <button class="btn btn-outline-danger btn-sm ms-1" onclick="bmDeleteBucket('${b.name}')" title="Delete bucket (must be empty)">🗑 Delete</button>
                     </td>
@@ -1661,6 +1687,147 @@
             bmLoadAcl();
         })
         .catch(e => { c.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
+    }
+
+    // ── Object Versions Manager ──────────────────────────────────────────────
+    function bmOpenVersionsManager(bucket, prefix) {
+        if (!bucket) { alert('No bucket selected.'); return; }
+        ovCurrentBucket = bucket;
+        ovEntries = [];
+        ovSelected = new Set();
+        document.getElementById('ovBucketName').textContent = bucket;
+        new bootstrap.Modal(document.getElementById('objectVersionsModal')).show();
+        ovRenderPanel(prefix || '');
+    }
+
+    function ovRenderPanel(initialPrefix) {
+        const c = document.getElementById('ovContent');
+        c.innerHTML = `
+            <p style="color:#555;font-size:13px;">Shows every object version AND delete marker — including noncurrent versions the regular
+            Folders &amp; Objects view can't see. Useful for finding storage a versioned bucket is still holding, and for purging specific
+            stale versions (e.g. leaked test objects) by exact Version ID.</p>
+
+            <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">
+                <input type="text" id="ovPrefixInput" class="form-control form-control-sm" style="max-width:300px;" placeholder="Prefix filter (optional)" value="${initialPrefix}">
+                <button class="btn btn-primary btn-sm" onclick="ovLoadVersions()">🔍 Load</button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="ovQuickFilter('__policy_')">🧹 Policy Probe residue</button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="ovQuickFilter('_immutability-audit-test/')">🧹 Immutability Audit residue</button>
+                <button class="btn btn-outline-secondary btn-sm" onclick="ovQuickFilter('')">✖ Clear filter</button>
+            </div>
+
+            <div id="ovTruncatedMsg"></div>
+
+            <div style="display:flex;justify-content:space-between;align-items:center;margin:10px 0;">
+                <label style="font-size:13px;"><input type="checkbox" id="ovSelectAll" onchange="ovToggleSelectAll(this)"> Select all listed</label>
+                <button class="btn btn-outline-danger btn-sm" id="ovDeleteBtn" onclick="ovDeleteSelected()" disabled>🗑 Delete Selected (0)</button>
+            </div>
+
+            <div style="max-height:420px;overflow-y:auto;">
+                <table class="table table-sm" style="font-size:12px;">
+                    <thead><tr><th></th><th>Key</th><th>Version ID</th><th>Latest?</th><th>Type</th><th>Size</th><th>Last Modified</th></tr></thead>
+                    <tbody id="ovRowsBody"><tr><td colspan="7" style="color:#888;">Loading...</td></tr></tbody>
+                </table>
+            </div>
+
+            <div id="ovDeleteMsg" style="margin-top:8px;font-size:13px;"></div>`;
+
+        ovLoadVersions();
+    }
+
+    function ovLoadVersions() {
+        const prefix = document.getElementById('ovPrefixInput').value.trim();
+        const body = document.getElementById('ovRowsBody');
+        body.innerHTML = '<tr><td colspan="7"><div class="spinner-border spinner-border-sm"></div> Loading...</td></tr>';
+        ovSelected = new Set();
+        document.getElementById('ovSelectAll').checked = false;
+        ovUpdateBulkBar();
+        fetch('/api/manager/list-object-versions', { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ ..._bmCreds(), bucket_name: ovCurrentBucket, prefix }) })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { body.innerHTML = `<tr><td colspan="7"><div class="alert alert-danger">❌ ${data.error}</div></td></tr>`; return; }
+            ovEntries = data.entries;
+            const trunc = document.getElementById('ovTruncatedMsg');
+            trunc.innerHTML = data.truncated ? `<div class="alert alert-warning py-2" style="font-size:12px;">⚠ Results truncated at ${ovEntries.length} entries — use a more specific prefix to see everything.</div>` : '';
+            ovRenderRows();
+        })
+        .catch(e => { body.innerHTML = `<tr><td colspan="7"><div class="alert alert-danger">❌ ${e.message}</div></td></tr>`; });
+    }
+
+    function ovEntryId(e) { return `${e.key}::${e.version_id}`; }
+
+    function ovRenderRows() {
+        const body = document.getElementById('ovRowsBody');
+        if (!ovEntries.length) { body.innerHTML = '<tr><td colspan="7" style="color:#888;">No versions found for this prefix.</td></tr>'; return; }
+        body.innerHTML = ovEntries.map((e, i) => {
+            const id = ovEntryId(e);
+            const checked = ovSelected.has(id) ? 'checked' : '';
+            const typeLabel = e.type === 'delete_marker'
+                ? '<span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;background:#fff3cd;color:#856404;">DELETE MARKER</span>'
+                : '<span style="padding:2px 8px;border-radius:20px;font-size:10px;font-weight:600;background:#e2e3e5;color:#383d41;">VERSION</span>';
+            const latestBadge = e.is_latest ? '<span style="color:#155724;font-weight:600;">✓ latest</span>' : '<span style="color:#888;">—</span>';
+            return `<tr>
+                <td><input type="checkbox" ${checked} onchange="ovToggleEntry(${i})"></td>
+                <td style="font-family:monospace;word-break:break-all;">${e.key}</td>
+                <td style="font-family:monospace;color:#888;" title="${e.version_id}">${e.version_id.substring(0,12)}...</td>
+                <td>${latestBadge}</td>
+                <td>${typeLabel}</td>
+                <td>${e.size ? _fmtBytes(e.size) : '—'}</td>
+                <td style="white-space:nowrap;color:#888;">${new Date(e.last_modified).toLocaleString()}</td>
+            </tr>`;
+        }).join('');
+    }
+
+    function ovToggleEntry(i) {
+        const id = ovEntryId(ovEntries[i]);
+        if (ovSelected.has(id)) ovSelected.delete(id); else ovSelected.add(id);
+        ovUpdateBulkBar();
+    }
+
+    function ovToggleSelectAll(checkbox) {
+        if (checkbox.checked) {
+            ovEntries.forEach(e => ovSelected.add(ovEntryId(e)));
+        } else {
+            ovSelected.clear();
+        }
+        ovRenderRows();
+        ovUpdateBulkBar();
+    }
+
+    function ovUpdateBulkBar() {
+        const btn = document.getElementById('ovDeleteBtn');
+        btn.textContent = `🗑 Delete Selected (${ovSelected.size})`;
+        btn.disabled = ovSelected.size === 0;
+    }
+
+    function ovDeleteSelected() {
+        if (!ovSelected.size) return;
+        if (!confirm(`Permanently delete ${ovSelected.size} selected version(s)/delete marker(s) from "${ovCurrentBucket}"?\n\nThis cannot be undone. If any are still retention-locked, they'll show as errors below.`)) return;
+
+        const msg = document.getElementById('ovDeleteMsg');
+        msg.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Deleting...';
+
+        const versions = ovEntries
+            .filter(e => ovSelected.has(ovEntryId(e)))
+            .map(e => ({ key: e.key, version_id: e.version_id }));
+
+        fetch('/api/manager/delete-object-versions', { method:'POST', headers:{'Content-Type':'application/json'},
+            body: JSON.stringify({ ..._bmCreds(), bucket_name: ovCurrentBucket, versions }) })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) { msg.innerHTML = `<span style="color:red;">❌ ${data.error}</span>`; return; }
+            const deleted = data.deleted.length;
+            const errors = data.errors.length;
+            msg.innerHTML = `<span style="color:green;">✅ Deleted ${deleted} version(s).</span>` +
+                (errors ? ` <span style="color:#b45309;">⚠ ${errors} still locked/failed: ${data.errors.map(e=>e.Key).join(', ')}</span>` : '');
+            ovLoadVersions();
+        })
+        .catch(e => { msg.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`; });
+    }
+
+    function ovQuickFilter(prefix) {
+        document.getElementById('ovPrefixInput').value = prefix;
+        ovLoadVersions();
     }
 
     function bmCreateBucket() {
