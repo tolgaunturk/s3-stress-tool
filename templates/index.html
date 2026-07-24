@@ -1365,19 +1365,52 @@
         .then(r => r.json())
         .then(data => {
             if (data.error) { c.innerHTML = `<div class="alert alert-danger">❌ ${data.error}</div>`; return; }
-            c.innerHTML = `
-                <p style="color:#555;font-size:13px;margin-bottom:16px;">Bucket: <strong>${data.bucket_name}</strong> — includes objects in all folders and subfolders.</p>
+            const versioned = data.versioning_status && data.versioning_status !== 'Disabled';
+            const av = data.all_versions;
+            const discrepancy = av && (av.version_count !== data.object_count || av.total_size_bytes !== data.total_size_bytes);
+
+            let html = `
+                <p style="color:#555;font-size:13px;margin-bottom:16px;">Bucket: <strong>${data.bucket_name}</strong> — includes objects in all folders and subfolders.
+                ${versioned ? ` Versioning: <strong>${data.versioning_status}</strong>.` : ''}</p>
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
                     <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:16px;text-align:center;">
                         <div style="font-size:1.7rem;font-weight:700;color:#1e293b;">${data.object_count.toLocaleString()}</div>
-                        <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-top:4px;">Total Objects</div>
+                        <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-top:4px;">${versioned ? 'Current Objects' : 'Total Objects'}</div>
                     </div>
                     <div style="background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:16px;text-align:center;">
                         <div style="font-size:1.7rem;font-weight:700;color:#1e293b;">${data.formatted_size}</div>
-                        <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-top:4px;">Total Size</div>
+                        <div style="font-size:12px;color:#888;text-transform:uppercase;letter-spacing:.4px;margin-top:4px;">${versioned ? 'Current Size' : 'Total Size'}</div>
                     </div>
                 </div>
                 <div style="margin-top:14px;font-size:13px;color:#555;">Average object size: <strong>${data.formatted_avg_size}</strong></div>`;
+
+            if (av) {
+                html += `
+                    <div style="background:${discrepancy ? '#fef2f2' : '#f8f9fa'};border:1px solid ${discrepancy ? '#fecaca' : '#dee2e6'};border-radius:8px;padding:16px;margin-top:16px;">
+                        <div style="font-weight:700;color:${discrepancy ? '#991b1b' : '#1e293b'};margin-bottom:10px;">
+                            ${discrepancy ? '⚠️ ' : ''}All Versions — true storage (includes noncurrent versions${av.delete_marker_count ? ' + delete markers' : ''})
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+                            <div style="text-align:center;">
+                                <div style="font-size:1.3rem;font-weight:700;color:#1e293b;">${av.version_count.toLocaleString()}</div>
+                                <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.3px;">Total Versions</div>
+                            </div>
+                            <div style="text-align:center;">
+                                <div style="font-size:1.3rem;font-weight:700;color:#1e293b;">${av.formatted_size}</div>
+                                <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.3px;">True Total Size</div>
+                            </div>
+                            <div style="text-align:center;">
+                                <div style="font-size:1.3rem;font-weight:700;color:#1e293b;">${av.delete_marker_count.toLocaleString()}</div>
+                                <div style="font-size:11px;color:#888;text-transform:uppercase;letter-spacing:.3px;">Delete Markers</div>
+                            </div>
+                        </div>
+                        ${discrepancy ? `<div style="margin-top:10px;font-size:12px;color:#991b1b;">This bucket has versioning enabled — the numbers above (Current Objects/Size) only reflect the latest, non-deleted state. Noncurrent versions shown here are often still retention-locked and cannot be purged until their lock expires.</div>` : ''}
+                    </div>`;
+            } else if (data.all_versions_error) {
+                html += `<div style="margin-top:12px;font-size:12px;color:#b45309;">⚠ Could not check all-versions total: ${data.all_versions_error}</div>`;
+            }
+
+            c.innerHTML = html;
         })
         .catch(e => { c.innerHTML = `<div class="alert alert-danger">❌ ${e.message}</div>`; });
     }

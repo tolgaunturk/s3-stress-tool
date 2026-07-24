@@ -146,6 +146,38 @@ def capture_bucket_stats(s3_client, bucket_name):
         return None
 
 
+def capture_bucket_version_stats(s3_client, bucket_name):
+    """Sum ALL object versions (current + noncurrent) + delete markers via list_object_versions.
+
+    On a versioned bucket, list_objects_v2 (used by capture_bucket_stats) only sees the
+    current, non-deleted state of each key — it misses noncurrent versions entirely, which
+    is exactly what's usually still retention-locked and un-purgeable. This is the true
+    storage picture; the discrepancy between this and capture_bucket_stats() is the signal
+    that a bucket "looks empty" but isn't.
+    """
+    try:
+        version_count = 0
+        delete_marker_count = 0
+        total_size_bytes = 0
+        paginator = s3_client.get_paginator('list_object_versions')
+        pages = paginator.paginate(Bucket=bucket_name)
+
+        for page in pages:
+            for v in page.get('Versions', []):
+                version_count += 1
+                total_size_bytes += v.get('Size', 0)
+            delete_marker_count += len(page.get('DeleteMarkers', []))
+
+        return {
+            'version_count': version_count,
+            'delete_marker_count': delete_marker_count,
+            'total_size_bytes': total_size_bytes,
+        }
+    except Exception as e:
+        logger.error(f"Error capturing version stats for {bucket_name}: {e}")
+        return None
+
+
 def _creds_from_request(data):
     """Extract and validate S3 connection params from a request payload."""
     endpoint_url = data.get('endpoint_url', '').strip()
@@ -518,6 +550,26 @@ def analyze_page():
     return render_template('analyze.html')
 
 
+def _cleanup_probe_object(s3, bucket_name, key, max_attempts=3, wait_seconds=2):
+    """Best-effort cleanup for a policy-probe test object.
+
+    A GOVERNANCE-locked object becomes deletable once its retention window naturally
+    expires, so retry with a short backoff instead of giving up after one failed attempt —
+    a silent one-shot failure here permanently leaks a version into the bucket every time
+    the probe runs against a bucket where BypassGovernanceRetention is denied.
+    """
+    for attempt in range(max_attempts):
+        try:
+            s3.delete_object(Bucket=bucket_name, Key=key)
+            return True
+        except Exception as e:
+            if attempt < max_attempts - 1:
+                time.sleep(wait_seconds)
+            else:
+                logger.warning(f"Policy probe cleanup failed for s3://{bucket_name}/{key} after {max_attempts} attempts: {e}")
+    return False
+
+
 @app.route('/api/policy/probe', methods=['POST'])
 def policy_probe():
     """Run a permission matrix scan against a bucket with the given credentials.
@@ -702,8 +754,10 @@ def policy_probe():
         except Exception as e:
             results['s3:PutBucketObjectLockConfiguration'] = {'status': 'ERROR', 'detail': str(e)[:80]}
 
-        # PutObjectRetention / PutObjectLegalHold: need a temporary probe object
-        _WRITE_KEY = '__policy_write_probe__'
+        # PutObjectRetention / PutObjectLegalHold: need a temporary probe object.
+        # Keys are unique per run (not fixed names) so repeated probe runs on a versioned
+        # bucket don't keep stacking new versions on top of one another.
+        _WRITE_KEY = f'__policy_write_probe_{uuid.uuid4().hex[:8]}__'
         _write_ok = False
         try:
             s3.put_object(Bucket=bucket_name, Key=_WRITE_KEY, Body=b'x')
@@ -753,10 +807,11 @@ def policy_probe():
             # BypassGovernanceRetention: test only if PutObjectRetention was ALLOWED
             # (requires a live GOVERNANCE-locked object to probe)
             if results.get('s3:PutObjectRetention', {}).get('status') == 'ALLOWED':
-                _bypass_key = '__policy_bypass_probe__'
+                _bypass_key = f'__policy_bypass_probe_{uuid.uuid4().hex[:8]}__'
+                _bypass_lock_seconds = 6
                 try:
                     s3.put_object(Bucket=bucket_name, Key=_bypass_key, Body=b'x')
-                    _future = datetime.now(timezone.utc) + timedelta(seconds=30)
+                    _future = datetime.now(timezone.utc) + timedelta(seconds=_bypass_lock_seconds)
                     s3.put_object_retention(Bucket=bucket_name, Key=_bypass_key,
                                             Retention={'Mode': 'GOVERNANCE', 'RetainUntilDate': _future})
                     # Now attempt deletion with bypass — this is the actual permission check
@@ -770,19 +825,19 @@ def policy_probe():
                         results['s3:BypassGovernanceRetention'] = {'status': 'DENIED', 'detail': _code}
                     else:
                         results['s3:BypassGovernanceRetention'] = {'status': 'ERROR', 'detail': _code}
-                    try:
-                        s3.delete_object(Bucket=bucket_name, Key=_bypass_key)
-                    except Exception:
-                        pass
+                    # Bypass was denied (or errored) — the object is still under its short
+                    # GOVERNANCE lock. Retry the plain delete with backoff until the lock
+                    # naturally expires, instead of giving up silently and leaking a version.
+                    _cleanup_probe_object(s3, bucket_name, _bypass_key,
+                                          max_attempts=5, wait_seconds=2)
                 except Exception as e:
                     results['s3:BypassGovernanceRetention'] = {'status': 'ERROR', 'detail': str(e)[:80]}
+                    _cleanup_probe_object(s3, bucket_name, _bypass_key,
+                                          max_attempts=5, wait_seconds=2)
             else:
                 results['s3:BypassGovernanceRetention'] = {'status': 'SKIPPED', 'detail': 'Skipped — requires PutObjectRetention to be ALLOWED first'}
 
-            try:
-                s3.delete_object(Bucket=bucket_name, Key=_WRITE_KEY)
-            except Exception:
-                pass
+            _cleanup_probe_object(s3, bucket_name, _WRITE_KEY, max_attempts=3, wait_seconds=2)
         else:
             for _op in ('s3:PutObjectRetention', 's3:PutObjectLegalHold', 's3:BypassGovernanceRetention'):
                 results[_op] = {'status': 'SKIPPED', 'detail': 'Skipped — write probe object could not be created'}
@@ -1122,7 +1177,7 @@ def get_bucket_stats():
         total_size_bytes = stats['total_size_bytes']
         average_size = stats['average_size_bytes']
 
-        return jsonify({
+        result = {
             'bucket_name': bucket_name,
             'object_count': stats['object_count'],
             'total_size_bytes': total_size_bytes,
@@ -1131,7 +1186,30 @@ def get_bucket_stats():
             'average_size_mb': round(average_size / (1024 * 1024), 2),
             'formatted_size': _format_bytes(total_size_bytes),
             'formatted_avg_size': _format_bytes(average_size),
-        })
+        }
+
+        # Versioning check — cheap single call. If enabled/suspended, the "current objects"
+        # numbers above can under-report what's actually stored (see capture_bucket_version_stats).
+        try:
+            vresp = s3_client.get_bucket_versioning(Bucket=bucket_name)
+            versioning_status = vresp.get('Status')  # 'Enabled' | 'Suspended' | absent
+        except Exception:
+            versioning_status = None
+        result['versioning_status'] = versioning_status or 'Disabled'
+
+        if versioning_status in ('Enabled', 'Suspended'):
+            vstats = capture_bucket_version_stats(s3_client, bucket_name)
+            if vstats:
+                result['all_versions'] = {
+                    'version_count': vstats['version_count'],
+                    'delete_marker_count': vstats['delete_marker_count'],
+                    'total_size_bytes': vstats['total_size_bytes'],
+                    'formatted_size': _format_bytes(vstats['total_size_bytes']),
+                }
+            else:
+                result['all_versions_error'] = 'Could not list object versions (check ListBucketVersions / s3:GetBucketVersioning permission)'
+
+        return jsonify(result)
 
     except Exception as e:
         logger.error(f"Error in bucket-stats endpoint: {e}")
