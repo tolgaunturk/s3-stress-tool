@@ -2355,8 +2355,26 @@
         .then(data => {
             if (data.error) { c.innerHTML = `<div class="alert alert-danger">❌ ${data.error}</div>`; return; }
             if (data.object_lock_enabled === true) {
+                const rule = data.lock_configuration && data.lock_configuration.Rule;
+                const defaultRetention = rule && rule.DefaultRetention;
+                let defaultRuleHtml;
+                if (defaultRetention) {
+                    const period = defaultRetention.Days ? `${defaultRetention.Days} day(s)` : (defaultRetention.Years ? `${defaultRetention.Years} year(s)` : 'unspecified period');
+                    defaultRuleHtml = `<div class="alert alert-success" style="margin-top:10px;"><strong>✅ Default retention rule IS configured</strong><br>
+                        Mode: <strong>${defaultRetention.Mode}</strong>, Period: <strong>${period}</strong><br>
+                        Every new object written to this bucket is <strong>automatically locked</strong> for that period — no explicit retention needed per upload.</div>`;
+                } else {
+                    defaultRuleHtml = `<div class="alert alert-warning" style="margin-top:10px;"><strong>⚠️ NO default retention rule configured</strong><br>
+                        Object Lock capability is enabled, but nothing automatically protects a plain write. A normal object with no
+                        explicit retention/legal-hold set on it is <strong>NOT protected</strong> — a delete will succeed immediately.<br><br>
+                        This is almost certainly why the Immutability Audit tool shows "ALLOWED": it deliberately writes plain objects
+                        with no retention (that's how it tests the bucket's own default behavior). To get automatic protection on every
+                        write, either ask your provider to configure a default retention rule on this bucket, or explicitly set
+                        <code>ObjectLockMode</code> / <code>ObjectLockRetainUntilDate</code> on every PutObject call yourself.</div>`;
+                }
                 c.innerHTML = `<div class="alert alert-success"><strong>✅ Object Lock is ENABLED</strong><br>
                     Bucket <strong>${data.bucket}</strong> supports retention lock.<br>You can run retention scenarios on this bucket.</div>
+                    ${defaultRuleHtml}
                     <div style="background:#f3e5f5;padding:12px;border-radius:8px;border-left:4px solid #9c27b0;">
                     <strong>Available retention scenarios:</strong>
                     <ul style="margin:8px 0 0 0;padding-left:20px;font-size:13px;">
@@ -2481,6 +2499,13 @@
             html += `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;padding:12px;margin-bottom:14px;color:#991b1b;font-size:13px;">
                 ⚠️ <strong>Inconsistent enforcement detected</strong> — some delete attempts were blocked while others succeeded
                 against the same bucket. Export this log as evidence for your provider.
+            </div>`;
+        } else if (allowed > 0 && blocked === 0) {
+            html += `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px;margin-bottom:14px;color:#92400e;font-size:13px;">
+                ℹ️ All attempts were ALLOWED — this doesn't necessarily mean the bucket has no protection. This tool writes plain
+                objects with no retention set, deliberately, to test the bucket's own default behavior. If the bucket has Object
+                Lock enabled but no <strong>default retention rule</strong>, plain writes like these are never locked in the first
+                place. Check <strong>🔒 Lock</strong> in the sidebar — it now shows whether a default retention rule actually exists.
             </div>`;
         }
         el.innerHTML = html;
